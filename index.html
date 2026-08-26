@@ -361,7 +361,7 @@
     }
     const json = await res.json();
     const block = (json.content || []).find((b) => b.type === 'text');
-    return block ? block.text : '';
+    return { text: block ? block.text : '', stopReason: json.stop_reason || '' };
   }
 
   function buildTranslateSystemPrompt() {
@@ -488,11 +488,12 @@
     btn.textContent = 'drafting…';
     try {
       const sample = sampleArchiveForDraft(state.archive);
-      const draft = await callClaude({
+      const { text: draft, stopReason } = await callClaude({
         system: PROFILE_DRAFT_SYSTEM,
         userContent: 'Here are messages this person wrote, in their own words:\n\n' + sample,
-        maxTokens: 500
+        maxTokens: 2048
       });
+      if (!draft.trim()) throw new Error(emptyResponseMessage(stopReason));
       $('draft-text').value = draft.trim();
       $('draft-box').style.display = 'block';
     } catch (err) {
@@ -538,6 +539,12 @@
     return (err && err.message) || 'something went wrong.';
   }
 
+  function emptyResponseMessage(stopReason) {
+    if (stopReason === 'max_tokens')
+      return 'the response was cut off before it produced any visible text — this happens when a long or complex message uses up the response budget on internal reasoning first. Try a shorter message, or try again.';
+    return 'the model didn\'t return any text back. Try again, or try a shorter message.';
+  }
+
   let lastTranslated = '', lastOriginal = '';
   $('translate-btn').addEventListener('click', async () => {
     const input = $('input-text').value.trim();
@@ -547,8 +554,10 @@
     btn.disabled = true;
     $('translate-status').textContent = 'translating…';
     try {
-      const raw = await callClaude({ system: buildTranslateSystemPrompt(), userContent: input, maxTokens: 800 });
+      const { text: raw, stopReason } = await callClaude({ system: buildTranslateSystemPrompt(), userContent: input, maxTokens: 4096 });
+      if (!raw.trim()) throw new Error(emptyResponseMessage(stopReason));
       const { translated, note } = parseTranslateResponse(raw);
+      if (!translated.trim()) throw new Error(emptyResponseMessage(stopReason));
       lastTranslated = translated; lastOriginal = input;
       $('translated-block').textContent = translated;
       if (note) { $('note-block').textContent = 'Didn\'t fully carry over: ' + note; $('note-block').style.display = 'block'; }
