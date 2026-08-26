@@ -51,11 +51,12 @@ contend with. Concretely:
   a starting version of that note by having the model characterize patterns
   it observes only in the person's own messages — but the draft is shown for
   review and never saved without the person accepting or editing it first.
-- Nothing about *listeners* (a specific manager, partner, friend) is modeled
-  in v1 — talking to a model isn't the same act as talking to a specific
-  person in your life (no turn-taking pressure, no visible impatience), so
-  this corpus is honest signal about the sender, not about who receives the
-  message. That's an acknowledged gap, not a solved problem.
+- Modeling a *listener* (a specific manager, partner, friend) isn't attempted
+  from a person's own LLM-conversation corpus — talking to a model isn't the
+  same act as talking to a specific person in your life (no turn-taking
+  pressure, no visible impatience), so that corpus is honest signal about the
+  sender, not about who receives the message. That gap is partly closed a
+  different way: see "Incoming mode and sharing voice notes" below.
 
 **Storage footprint stays deliberately small.** Only the user's own extracted
 messages (not full conversations, not the assistant's turns) are kept from an
@@ -94,6 +95,35 @@ more a version compresses toward Plain, the more likely something real
 gets compressed away — and that's exactly when the honesty note is more
 likely to fire, disclosing the compression instead of letting brevity
 quietly stand in for completeness.
+
+## Incoming mode and sharing voice notes
+
+The tool started sender-only: it reworks a message *you're* about to send,
+with no model of who's receiving it. Two small, deliberately cheap additions
+close part of that gap without changing the local-only architecture at all.
+
+**Incoming mode** flips the tool around. Instead of a rewrite meant to be
+forwarded, you paste in a message *you received* and get back what it most
+likely means, plus anything worth watching for that could be easy for you
+specifically to misread — sarcasm, an indirect request, bluntness that isn't
+hostility — calibrated to your own voice notes. Because the output isn't
+something to send anywhere, detail level and the copy/include-original
+controls don't apply and are hidden in this mode; the honesty principle still
+holds, it just shows up as "watch for" rather than "didn't fully carry over."
+
+**Sharing voice notes** is the plain-text version of two-sided modeling: a
+"copy voice notes to share" action puts your own notes on the clipboard, and
+the other person can paste them into their own copy of U/I, into an optional
+field that appears in incoming mode, so their reading of your messages is
+informed by how you've actually described yourself — not a generic default.
+This is deliberately the cheapest version of "two people's instances knowing
+about each other": a text blob one person hands another, not a server, not a
+paired session, not a live connection. A literal live connection between two
+copies of the app was considered and set aside — it would mean introducing
+some kind of relay between browsers, which is a real fork against the
+no-server, no-account decision this project has held since BYOK was chosen,
+and it deserves its own dedicated design pass rather than being folded in
+here as an add-on.
 
 ## Forwarding, and showing both
 
@@ -156,7 +186,13 @@ compromises the other.
   latency and ASR-accuracy problems on top of an already hard translation
   problem.
 - NT → ND direction — not ruled out, just not built yet.
-- A model of specific listeners/recipients — not attempted in v1.
+- A model of specific listeners/recipients from a person's own LLM-
+  conversation corpus — not attempted; partly addressed instead by incoming
+  mode and shared voice notes (see above).
+- A live/synced connection between two people's copies of the app — the
+  plain-text sharing version is built; an actual live connection would
+  require a server or relay, a real fork against the no-server design this
+  project has held since BYOK, and needs its own dedicated design pass.
 - A fully local/offline on-device model — separate future prototype.
 - Persisted translation history — only the profile persists, not the
   messages themselves, by default.
