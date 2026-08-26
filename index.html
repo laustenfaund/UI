@@ -128,6 +128,7 @@
     border-radius: 4px; padding: 10px 16px;
   }
   button.ghost-btn:hover { color: var(--text); border-color: var(--text2); }
+  button.ghost-btn.active-mode { border-color: var(--accent); color: var(--text); }
   button.danger-btn {
     font-family: var(--mono); font-size: 12px; letter-spacing: 0.03em; text-transform: uppercase;
     background: transparent; border: 1px solid var(--warn); color: var(--warn);
@@ -262,8 +263,11 @@
       <textarea id="profile-text" rows="5" placeholder="e.g. I tend to be very literal and direct, I often lead with the conclusion before the reasoning, I sometimes info-dump on topics I care about, sarcasm rarely lands for me either direction…"></textarea>
       <div class="row" style="margin-top:10px;">
         <button class="ghost-btn" id="save-profile">save voice notes</button>
+        <button class="ghost-btn" id="export-profile-btn">copy voice notes to share</button>
         <span id="profile-saved-hint" class="small" style="display:none;">saved</span>
+        <span id="export-hint" class="small" style="display:none;">copied</span>
       </div>
+      <p class="hint" style="margin-top:6px;">Sharing your voice notes with someone lets them paste them into their own copy of U/I, under "incoming" below, to interpret your messages more accurately.</p>
 
       <div style="margin-top:18px; padding-top:16px; border-top:1px solid var(--line-soft);">
         <label class="field-label">Optional: draft a starting point from a chat archive</label>
@@ -292,13 +296,23 @@
 
   <div class="module primary" id="translate-module">
     <div class="module-body" style="padding-top:16px; border-top:none;">
-      <div class="channel-tag"><span class="badge-letter">A</span> your message</div>
+      <div class="row" style="margin-bottom:16px;">
+        <button class="ghost-btn active-mode" id="mode-outgoing-btn">outgoing — write</button>
+        <button class="ghost-btn" id="mode-incoming-btn">incoming — read</button>
+      </div>
+
+      <div id="contact-profile-wrap" style="display:none; margin-bottom:16px;">
+        <label class="field-label" for="contact-profile-text">Optional — their shared voice notes, if you have them</label>
+        <textarea id="contact-profile-text" rows="2" placeholder="Paste voice notes someone shared with you, to help interpret messages from them more accurately…"></textarea>
+      </div>
+
+      <div class="channel-tag"><span class="badge-letter">A</span> <span id="channel-a-label">your message</span></div>
       <textarea id="input-text" rows="5" placeholder="Paste or write the message you're about to send…" aria-label="What you want to say"></textarea>
       <div class="meta-row">
         <span class="char-count" id="char-count">0 characters</span>
       </div>
 
-      <div style="margin-top:14px;">
+      <div id="detail-level-wrap" style="margin-top:14px;">
         <label class="field-label" for="detail-level-select">How much should carry over, for this message</label>
         <select id="detail-level-select" style="max-width:280px;">
           <option value="plain">Plain — shortest, easiest to read quickly</option>
@@ -310,26 +324,28 @@
       <div class="controls-row">
         <button class="ptt" id="translate-btn">
           <svg width="13" height="13" viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M12 4v4M8 7a4 4 0 0 1 8 0" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/><rect x="9.5" y="7" width="5" height="7" rx="1" stroke="currentColor" stroke-width="1.8"/><path d="M10.5 18h3" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg>
-          translate
+          <span id="translate-btn-label">translate</span>
         </button>
         <button class="ghost-btn" id="clear-input-btn">clear</button>
         <span class="send-status" id="translate-status"></span>
       </div>
 
       <div id="result-area" style="display:none; margin-top:22px; padding-top:18px; border-top:1px solid var(--line-soft);">
-        <div class="channel-tag b"><span class="badge-letter">B</span> reworded for them</div>
+        <div class="channel-tag b"><span class="badge-letter">B</span> <span id="channel-b-label">reworded for them</span></div>
         <div id="translated-block" class="output-block"></div>
         <div id="note-block" class="note-block" style="display:none;"></div>
 
-        <div class="controls-row" style="margin-top:12px;">
-          <label class="checkbox-row">
-            <input type="checkbox" id="include-original-toggle" />
-            include my original when I copy
-          </label>
-        </div>
-        <div class="controls-row" style="margin-top:6px;">
-          <button class="ghost-btn" id="copy-btn">copy</button>
-          <span id="copy-hint" class="small" style="display:none;">copied</span>
+        <div id="outgoing-result-controls">
+          <div class="controls-row" style="margin-top:12px;">
+            <label class="checkbox-row">
+              <input type="checkbox" id="include-original-toggle" />
+              include my original when I copy
+            </label>
+          </div>
+          <div class="controls-row" style="margin-top:6px;">
+            <button class="ghost-btn" id="copy-btn">copy</button>
+            <span id="copy-hint" class="small" style="display:none;">copied</span>
+          </div>
         </div>
       </div>
       <div id="translate-error" class="error-block" style="display:none;"></div>
@@ -373,7 +389,7 @@
   const DB_NAME = 'relay_db', STORE = 'kv';
   const KEY_API = 'relay_api_key', KEY_MODEL = 'relay_model',
         KEY_PROFILE = 'relay_profile', KEY_ARCHIVE = 'relay_archive_messages',
-        KEY_DETAIL = 'relay_detail_level';
+        KEY_DETAIL = 'relay_detail_level', KEY_CONTACT = 'relay_contact_profile';
 
   function openDB() {
     return new Promise((resolve, reject) => {
@@ -417,11 +433,11 @@
     try { localStorage.removeItem(key); } catch (e2) {}
   }
 
-  let state = { apiKey: '', model: 'claude-sonnet-5', profile: '', archive: [], detailLevel: 'balanced' };
+  let state = { apiKey: '', model: 'claude-sonnet-5', profile: '', archive: [], detailLevel: 'balanced', contactProfile: '' };
 
   async function loadState() {
-    const [apiKey, model, profile, archive, detailLevel] = await Promise.all([
-      idbGet(KEY_API), idbGet(KEY_MODEL), idbGet(KEY_PROFILE), idbGet(KEY_ARCHIVE), idbGet(KEY_DETAIL)
+    const [apiKey, model, profile, archive, detailLevel, contactProfile] = await Promise.all([
+      idbGet(KEY_API), idbGet(KEY_MODEL), idbGet(KEY_PROFILE), idbGet(KEY_ARCHIVE), idbGet(KEY_DETAIL), idbGet(KEY_CONTACT)
     ]);
     if (apiKey !== undefined) state.apiKey = apiKey;
     else { try { const v = localStorage.getItem(KEY_API); if (v) state.apiKey = JSON.parse(v); } catch (e) {} }
@@ -429,6 +445,7 @@
     if (profile !== undefined) state.profile = profile;
     if (Array.isArray(archive)) state.archive = archive;
     if (detailLevel !== undefined) state.detailLevel = detailLevel;
+    if (contactProfile !== undefined) state.contactProfile = contactProfile;
   }
 
   // ---------- archive parsing (adapted from Archive Mole's parser; user-authored text only) ----------
@@ -568,6 +585,43 @@
     return { translated, note };
   }
 
+  function buildIncomingSystemPrompt() {
+    const readerBlock = state.profile.trim()
+      ? 'Here is how this reader has described their own natural communication style, in their own words — use it to calibrate what might be easy for them specifically to misread, not as a checklist:\n"""\n' + state.profile.trim() + '\n"""'
+      : 'No communication-style notes have been provided for this reader yet; interpret conservatively without assuming a specific style.';
+    const senderBlock = state.contactProfile.trim()
+      ? 'Here is how the sender of this message has described their own natural communication style, in their own words — use it to interpret their actual intent more accurately:\n"""\n' + state.contactProfile.trim() + '\n"""'
+      : 'No notes are available about how the sender of this message communicates.';
+    return [
+      'You are part of U/I, helping a specific person understand a message someone else sent them — without telling them how they should feel about it.',
+      '',
+      'Given one message this person received:',
+      '1. State plainly what the message most likely means, and what, if anything, it is actually asking for.',
+      '2. Flag anything in it that could easily be misread by this specific reader — bluntness that isn\'t hostility, an indirect request, sarcasm, subtext — calibrated to what they\'ve said about how they read things. If nothing stands out, say so.',
+      '3. Do not add claims the message doesn\'t support, and do not editorialize about the sender.',
+      '',
+      readerBlock,
+      '',
+      senderBlock,
+      '',
+      'Respond in exactly this format, nothing else:',
+      'MEANING:',
+      '<what the message most likely means>',
+      '',
+      'WATCH FOR:',
+      '<what could be easy to misread, or the single word NONE if nothing stands out>'
+    ].join('\n');
+  }
+
+  function parseIncomingResponse(text) {
+    const mMatch = text.match(/MEANING:\s*([\s\S]*?)(?:\n\s*WATCH FOR:|$)/i);
+    const wMatch = text.match(/WATCH FOR:\s*([\s\S]*)$/i);
+    const meaning = (mMatch ? mMatch[1] : text).trim();
+    let watch = wMatch ? wMatch[1].trim() : '';
+    if (/^none$/i.test(watch)) watch = '';
+    return { meaning, watch };
+  }
+
   const PROFILE_DRAFT_SYSTEM = [
     'You are helping draft a short, editable description of how a specific person naturally communicates, based only on messages they themselves wrote to an AI assistant over time (not the assistant\'s replies). This draft will be shown to the person to edit or reject before it is used anywhere.',
     '',
@@ -653,6 +707,7 @@
       <ol>
         <li><a href="#translate">Translating a message</a></li>
         <li><a href="#detail">Detail level</a></li>
+        <li><a href="#incoming">Incoming: reading a message</a></li>
         <li><a href="#voice">Your voice</a></li>
         <li><a href="#archive">Chat archive uploads</a></li>
         <li><a href="#settings">Settings &amp; your API key</a></li>
@@ -680,36 +735,44 @@
         </ol>
         <p>This is separate from tone — U/I always leans toward reducing misread-tension when tone and literal wording pull apart. Detail level is about how much survives, not how it's framed.</p>
       </section>
-      <section id="voice">
+      <section id="incoming">
         <p class="sec-num">03</p>
+        <h2>Incoming: reading a message</h2>
+        <p>Switch to "incoming — read" above the message box to flip U/I around: instead of reworking something you're about to send, paste in a message <i>you received</i> and get help reading it. Rather than a rewrite, you get what the message most likely means, and — calibrated to your own voice notes — anything in it that could be easy for you specifically to misread: bluntness that isn't hostility, an indirect ask, sarcasm, subtext.</p>
+        <p>If you have voice notes the sender shared with you (see "Your voice" below for sharing yours), paste them into the optional field that appears in this mode — U/I uses them to interpret the sender's actual intent more accurately, not just to soften anything for you.</p>
+        <p>Incoming mode doesn't produce something to forward, so detail level and the copy/include-original controls are hidden — the output is for your own understanding.</p>
+      </section>
+      <section id="voice">
+        <p class="sec-num">04</p>
         <h2>Your voice</h2>
         <p>The "how you naturally communicate" notes are written by you, in your own words, and read before every translation to calibrate tone and what's worth preserving. Nothing about your communication style is inferred silently — this field is the only source, and you can edit it any time.</p>
+        <p>"Copy voice notes to share" puts them on your clipboard as plain text, so someone you're messaging can paste them into their own copy of U/I — into the optional field under "incoming" — to read your messages more accurately. It's a plain-text copy, not a live connection.</p>
       </section>
       <section id="archive">
-        <p class="sec-num">04</p>
+        <p class="sec-num">05</p>
         <h2>Chat archive uploads</h2>
         <p>Optionally upload ChatGPT or Claude export <code>.json</code> files to draft a starting point for your voice notes. U/I reads only <i>your own</i> messages from them, never the assistant's replies, and only your extracted messages are stored — not full conversations.</p>
         <p>A draft is never saved automatically: review it, edit it if needed, and choose "use this as my voice notes" yourself.</p>
       </section>
       <section id="settings">
-        <p class="sec-num">05</p>
+        <p class="sec-num">06</p>
         <h2>Settings &amp; your API key</h2>
         <p>U/I is bring-your-own-key: paste an Anthropic API key into Settings and it calls the Claude API directly from your browser — no account with U/I itself, no server in between. You pay Anthropic directly for what you use; a single translation typically costs a small fraction of a cent to a few cents, depending on the model chosen.</p>
       </section>
       <section id="privacy">
-        <p class="sec-num">06</p>
+        <p class="sec-num">07</p>
         <h2>Data &amp; privacy</h2>
-        <p>Your API key, voice notes, and any archive-derived messages are written only to this browser's local storage, on this device, and never sent anywhere except the direct call to Anthropic when you translate.</p>
-        <div class="note">"Clear all local data" permanently deletes all of it from this browser — it's a real delete, not a UI reset. There's no export or backup built in; your only durable copy is your key and your own written voice notes.</div>
+        <p>Your API key, voice notes, any voice notes someone shared with you, and any archive-derived messages are written only to this browser's local storage, on this device, and never sent anywhere except the direct call to Anthropic when you translate.</p>
+        <div class="note">"Clear all local data" permanently deletes all of it from this browser — it's a real delete, not a UI reset. There's no export or backup built in beyond copying your own voice notes out; your only durable copy is your key and your own written voice notes.</div>
       </section>
       <section id="direction">
-        <p class="sec-num">07</p>
+        <p class="sec-num">08</p>
         <h2>Why one direction, and not 100%</h2>
         <p>U/I only reworks neurodivergent phrasing into neurotypical-legible phrasing, on purpose. The work of crossing that gap already falls disproportionately on neurodivergent people, and this meets people where that labor already sits, rather than claiming to fix the imbalance itself.</p>
         <p>It also won't claim a message translated completely when it didn't — some things genuinely don't have a clean equivalent, and that's disclosed rather than smoothed over.</p>
       </section>
       <section id="troubleshooting">
-        <p class="sec-num">08</p>
+        <p class="sec-num">09</p>
         <h2>Troubleshooting</h2>
         <p><b>Nothing happens when I press translate</b> — check the input box isn't empty; an empty message is silently ignored.</p>
         <p><b>An error says the response was cut off</b> — this can happen with a very long or complex message; try shortening it, or try again.</p>
@@ -739,6 +802,7 @@
     $('draft-profile-btn').disabled = state.archive.length === 0;
     $('detail-level-select').value = state.detailLevel || 'balanced';
     $('char-count').textContent = $('input-text').value.length + ' characters';
+    $('contact-profile-text').value = state.contactProfile || '';
 
     const modelLabel = MODEL_LABELS[state.model] || state.model;
     $('settings-summary').textContent = modelLabel + ' · ' + (state.apiKey ? 'key saved' : 'no key set');
@@ -765,6 +829,46 @@
     state.detailLevel = e.target.value;
     await idbSet(KEY_DETAIL, state.detailLevel);
   });
+
+  $('contact-profile-text').addEventListener('change', async () => {
+    state.contactProfile = $('contact-profile-text').value;
+    await idbSet(KEY_CONTACT, state.contactProfile);
+  });
+
+  $('export-profile-btn').addEventListener('click', async () => {
+    try {
+      await navigator.clipboard.writeText(state.profile || '');
+      $('export-hint').style.display = 'inline';
+      setTimeout(() => { $('export-hint').style.display = 'none'; }, 1500);
+    } catch (e) {
+      alert('Could not copy automatically — select the text and copy it manually.');
+    }
+  });
+
+  // ---------- outgoing / incoming mode ----------
+  let mode = 'outgoing';
+  function setMode(next) {
+    mode = next;
+    $('mode-outgoing-btn').classList.toggle('active-mode', mode === 'outgoing');
+    $('mode-incoming-btn').classList.toggle('active-mode', mode === 'incoming');
+    $('detail-level-wrap').style.display = mode === 'outgoing' ? 'block' : 'none';
+    $('contact-profile-wrap').style.display = mode === 'incoming' ? 'block' : 'none';
+    $('outgoing-result-controls').style.display = mode === 'outgoing' ? '' : 'none';
+    $('channel-a-label').textContent = mode === 'outgoing' ? 'your message' : 'message you received';
+    $('channel-b-label').textContent = mode === 'outgoing' ? 'reworded for them' : 'what this likely means';
+    $('translate-btn-label').textContent = mode === 'outgoing' ? 'translate' : 'interpret';
+    $('input-text').placeholder = mode === 'outgoing'
+      ? 'Paste or write the message you\'re about to send…'
+      : 'Paste the message you received…';
+    $('input-text').setAttribute('aria-label', mode === 'outgoing' ? 'What you want to say' : 'The message you received');
+    // switching modes clears any result from the other mode so nothing stale is left mislabeled
+    $('result-area').style.display = 'none';
+    $('translated-block').textContent = '';
+    $('note-block').style.display = 'none';
+    $('translate-error').style.display = 'none';
+  }
+  $('mode-outgoing-btn').addEventListener('click', () => setMode('outgoing'));
+  $('mode-incoming-btn').addEventListener('click', () => setMode('incoming'));
 
   $('toggle-key-visibility').addEventListener('click', () => {
     const el = $('api-key');
@@ -844,9 +948,11 @@
     const hasKey = !!state.apiKey;
     const profileLen = (state.profile || '').trim().length;
     const archiveCount = state.archive.length;
+    const hasContact = !!(state.contactProfile && state.contactProfile.trim());
     $('clear-summary').textContent =
       (hasKey ? 'your saved API key, ' : '') +
       (profileLen ? 'your voice notes (' + profileLen + ' characters), ' : '') +
+      (hasContact ? 'a shared contact\'s voice notes, ' : '') +
       archiveCount + ' archived message' + (archiveCount === 1 ? '' : 's') +
       ' — all from this browser, permanently.';
     $('clear-overlay').style.display = 'flex';
@@ -856,7 +962,7 @@
   $('clear-confirm-btn').addEventListener('click', async () => {
     const btn = $('clear-confirm-btn');
     btn.textContent = 'clearing…'; btn.disabled = true;
-    await Promise.all([idbDelete(KEY_API), idbDelete(KEY_MODEL), idbDelete(KEY_PROFILE), idbDelete(KEY_ARCHIVE), idbDelete(KEY_DETAIL)]);
+    await Promise.all([idbDelete(KEY_API), idbDelete(KEY_MODEL), idbDelete(KEY_PROFILE), idbDelete(KEY_ARCHIVE), idbDelete(KEY_DETAIL), idbDelete(KEY_CONTACT)]);
     location.reload();
   });
 
@@ -890,18 +996,28 @@
     if (!input) return;
     const btn = $('translate-btn');
     btn.disabled = true;
-    $('translate-status').textContent = 'translating…';
+    $('translate-status').textContent = mode === 'incoming' ? 'interpreting…' : 'translating…';
     $('status-dot').classList.add('live');
     $('status-text').textContent = 'transmitting';
     try {
-      const { text: raw, stopReason } = await callClaude({ system: buildTranslateSystemPrompt(), userContent: input, maxTokens: 4096 });
+      const system = mode === 'incoming' ? buildIncomingSystemPrompt() : buildTranslateSystemPrompt();
+      const { text: raw, stopReason } = await callClaude({ system, userContent: input, maxTokens: 4096 });
       if (!raw.trim()) throw new Error(emptyResponseMessage(stopReason));
-      const { translated, note } = parseTranslateResponse(raw);
-      if (!translated.trim()) throw new Error(emptyResponseMessage(stopReason));
-      lastTranslated = translated; lastOriginal = input;
-      $('translated-block').textContent = translated;
-      if (note) { $('note-block').textContent = 'Didn\'t fully carry over: ' + note; $('note-block').style.display = 'block'; }
-      else { $('note-block').style.display = 'none'; }
+      if (mode === 'incoming') {
+        const { meaning, watch } = parseIncomingResponse(raw);
+        if (!meaning.trim()) throw new Error(emptyResponseMessage(stopReason));
+        lastTranslated = meaning; lastOriginal = input;
+        $('translated-block').textContent = meaning;
+        if (watch) { $('note-block').textContent = 'Worth watching for: ' + watch; $('note-block').style.display = 'block'; }
+        else { $('note-block').style.display = 'none'; }
+      } else {
+        const { translated, note } = parseTranslateResponse(raw);
+        if (!translated.trim()) throw new Error(emptyResponseMessage(stopReason));
+        lastTranslated = translated; lastOriginal = input;
+        $('translated-block').textContent = translated;
+        if (note) { $('note-block').textContent = 'Didn\'t fully carry over: ' + note; $('note-block').style.display = 'block'; }
+        else { $('note-block').style.display = 'none'; }
+      }
       $('result-area').style.display = 'block';
     } catch (err) {
       $('translate-error').textContent = describeError(err);
