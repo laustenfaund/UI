@@ -160,6 +160,16 @@
     <h2>Translate</h2>
     <label class="field-label" for="input-text">What you want to say</label>
     <textarea id="input-text" rows="5" placeholder="Paste or write the message you're about to send…"></textarea>
+
+    <div style="margin-top:10px;">
+      <label class="field-label" for="detail-level-select" style="margin-bottom:4px;">How much should carry over, for this message</label>
+      <select id="detail-level-select" style="max-width:280px;">
+        <option value="plain">Plain — shortest, easiest to read quickly</option>
+        <option value="balanced" selected>Balanced (default)</option>
+        <option value="full">Full detail — keeps more nuance, reads longer</option>
+      </select>
+    </div>
+
     <div class="row" style="margin-top:10px;">
       <button id="translate-btn" class="primary">translate</button>
       <button id="clear-input-btn" class="ghost">clear</button>
@@ -211,7 +221,8 @@
   // ---------- storage: IndexedDB with localStorage fallback, mirrors Archive Mole's pattern ----------
   const DB_NAME = 'relay_db', STORE = 'kv';
   const KEY_API = 'relay_api_key', KEY_MODEL = 'relay_model',
-        KEY_PROFILE = 'relay_profile', KEY_ARCHIVE = 'relay_archive_messages';
+        KEY_PROFILE = 'relay_profile', KEY_ARCHIVE = 'relay_archive_messages',
+        KEY_DETAIL = 'relay_detail_level';
 
   function openDB() {
     return new Promise((resolve, reject) => {
@@ -255,17 +266,18 @@
     try { localStorage.removeItem(key); } catch (e2) {}
   }
 
-  let state = { apiKey: '', model: 'claude-sonnet-5', profile: '', archive: [] };
+  let state = { apiKey: '', model: 'claude-sonnet-5', profile: '', archive: [], detailLevel: 'balanced' };
 
   async function loadState() {
-    const [apiKey, model, profile, archive] = await Promise.all([
-      idbGet(KEY_API), idbGet(KEY_MODEL), idbGet(KEY_PROFILE), idbGet(KEY_ARCHIVE)
+    const [apiKey, model, profile, archive, detailLevel] = await Promise.all([
+      idbGet(KEY_API), idbGet(KEY_MODEL), idbGet(KEY_PROFILE), idbGet(KEY_ARCHIVE), idbGet(KEY_DETAIL)
     ]);
     if (apiKey !== undefined) state.apiKey = apiKey;
     else { try { const v = localStorage.getItem(KEY_API); if (v) state.apiKey = JSON.parse(v); } catch (e) {} }
     if (model !== undefined) state.model = model;
     if (profile !== undefined) state.profile = profile;
     if (Array.isArray(archive)) state.archive = archive;
+    if (detailLevel !== undefined) state.detailLevel = detailLevel;
   }
 
   // ---------- archive parsing (adapted from Archive Mole's parser; user-authored text only) ----------
@@ -365,10 +377,16 @@
     return { text: block ? block.text : '', stopReason: json.stop_reason || '' };
   }
 
+  const DETAIL_LEVEL_INSTRUCTIONS = {
+    plain: '5. Prioritize brevity and immediate plain-language clarity: short sentences, everyday words, and it\'s fine to compress or simplify secondary detail and qualifications to keep it quick to read. If real nuance gets compressed away as a result, that counts as something to flag in the NOTE section — brevity doesn\'t excuse silently dropping it.',
+    balanced: '5. Balance clarity with completeness: don\'t pad the message with unneeded detail, but don\'t strip out nuance or qualification just to make it shorter either.',
+    full: '5. Preserve as much of the original\'s nuance, qualification, and detail as you reasonably can, even if the result reads a little longer or takes more effort — reword for tone and clarity, but don\'t compress away substance just to shorten it.'
+  };
   function buildTranslateSystemPrompt() {
     const profileBlock = state.profile.trim()
       ? 'Here is how this person has described their own natural communication style, in their own words — use it to calibrate tone and what\'s worth preserving, not as a checklist:\n"""\n' + state.profile.trim() + '\n"""'
       : 'No communication-style notes have been provided yet for this person; translate conservatively without assuming a specific style.';
+    const detailInstruction = DETAIL_LEVEL_INSTRUCTIONS[state.detailLevel] || DETAIL_LEVEL_INSTRUCTIONS.balanced;
     return [
       'You are part of U/I, a tool that helps a specific neurodivergent (ND) person\'s own written messages be understood by neurotypical (NT) readers — without erasing how they actually talk.',
       '',
@@ -377,6 +395,7 @@
       '2. Do not add claims, feelings, or content the original didn\'t express or imply.',
       '3. Do not lecture, moralize, or explain neurodivergence to the reader — just produce the reworded message itself.',
       '4. If some part of the original genuinely has no clean NT-legible equivalent, say so briefly instead of pretending the rewrite is complete. If everything carried over cleanly, don\'t mention this at all.',
+      detailInstruction,
       '',
       profileBlock,
       '',
@@ -435,7 +454,13 @@
     $('profile-text').value = state.profile || '';
     $('archive-count').textContent = state.archive.length + ' of your messages stored';
     $('draft-profile-btn').disabled = state.archive.length === 0;
+    $('detail-level-select').value = state.detailLevel || 'balanced';
   }
+
+  $('detail-level-select').addEventListener('change', async (e) => {
+    state.detailLevel = e.target.value;
+    await idbSet(KEY_DETAIL, state.detailLevel);
+  });
 
   $('settings-toggle').addEventListener('click', () => {
     const el = $('settings-panel');
@@ -528,7 +553,7 @@
   $('clear-confirm-btn').addEventListener('click', async () => {
     const btn = $('clear-confirm-btn');
     btn.textContent = 'clearing…'; btn.disabled = true;
-    await Promise.all([idbDelete(KEY_API), idbDelete(KEY_MODEL), idbDelete(KEY_PROFILE), idbDelete(KEY_ARCHIVE)]);
+    await Promise.all([idbDelete(KEY_API), idbDelete(KEY_MODEL), idbDelete(KEY_PROFILE), idbDelete(KEY_ARCHIVE), idbDelete(KEY_DETAIL)]);
     location.reload();
   });
 
