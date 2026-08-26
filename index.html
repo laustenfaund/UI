@@ -162,6 +162,7 @@
     <textarea id="input-text" rows="5" placeholder="Paste or write the message you're about to send…"></textarea>
     <div class="row" style="margin-top:10px;">
       <button id="translate-btn" class="primary">translate</button>
+      <button id="clear-input-btn" class="ghost">clear</button>
       <span id="translate-status" class="small"></span>
     </div>
 
@@ -571,6 +572,16 @@
       btn.disabled = false;
       $('translate-status').textContent = '';
     }
+  });
+
+  $('clear-input-btn').addEventListener('click', () => {
+    $('input-text').value = '';
+    $('translate-error').style.display = 'none';
+    $('result-area').style.display = 'none';
+    $('translated-block').textContent = '';
+    $('note-block').style.display = 'none';
+    lastTranslated = ''; lastOriginal = '';
+    $('input-text').focus();
   });
 
   $('copy-btn').addEventListener('click', async () => {
