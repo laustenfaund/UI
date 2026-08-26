@@ -2,15 +2,15 @@
 
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 
-A text-to-text tool that reworks a neurodivergent person's own message into
-phrasing more legible to a neurotypical reader — aimed at diffusing the
-tension misunderstanding causes, not just at literal fidelity.
+A text-to-text tool that reworks your own message into phrasing more legible
+to a reader who communicates differently than you do — aimed at diffusing
+the tension misunderstanding causes, not just at literal fidelity.
 
 ## Features
 
 - **Translate** — paste or write a message and get a version reworded for a
-  neurotypical reader, with an honest note when part of it didn't fully
-  carry over.
+  reader who communicates differently than you do, with an honest note when
+  part of it didn't fully carry over.
 - **Detail level** — per message, choose Plain, Balanced, or Full detail:
   how much nuance survives versus how quick the result is to read.
 - **Incoming mode** — flip it around: paste a message you received and get
@@ -52,18 +52,16 @@ deletes all of it — a real delete, not a UI reset.
 | File | What it is |
 | --- | --- |
 | [`index.html`](index.html) | The app. |
-| [`DESIGN.md`](DESIGN.md) | The reasoning behind every decision in it — why translation is one direction only, where personalization comes from, why output isn't claimed to be 100% complete, and what's deliberately out of scope. |
+| [`DESIGN.md`](DESIGN.md) | The reasoning behind every decision in it — where personalization comes from, why output isn't claimed to be 100% complete, and what's deliberately out of scope. |
+| [`manifest.json`](manifest.json), [`sw.js`](sw.js), [`icons/`](icons) | Make the app installable on a phone once hosted (e.g. GitHub Pages) — app icon, name, and a minimal offline shell cache. |
 | [`LICENSE`](LICENSE) | MIT. |
 
-## Why one direction, and not 100%
+## Why it isn't 100%
 
-U/I only reworks neurodivergent phrasing into neurotypical-legible phrasing,
-on purpose — the work of crossing that gap already falls disproportionately
-on neurodivergent people, and this meets people where that labor already
-sits rather than claiming to fix the imbalance itself. It also won't claim a
-message translated completely when it didn't; some things genuinely don't
-have a clean equivalent, and that's disclosed rather than smoothed over. See
-[`DESIGN.md`](DESIGN.md) for the full reasoning.
+U/I won't claim a message translated completely when it didn't; some things
+genuinely don't have a clean equivalent for a different kind of reader, and
+that's disclosed rather than smoothed over. See [`DESIGN.md`](DESIGN.md) for
+the full reasoning.
 
 ## License
 

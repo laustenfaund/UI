@@ -7,29 +7,27 @@ resulting feature list.
 
 ## What this is
 
-A text-to-text tool that takes a message a neurodivergent (ND) person has
-written and produces a version reworded to be more legible to a neurotypical
-(NT) reader — aimed at **diffusing the tension that misunderstanding causes**,
-not just at literal semantic fidelity. Those two goals usually agree; when they
-don't, this tool optimizes for the first.
+A text-to-text tool that takes a message someone has written and produces a
+version reworded to be more legible to a reader who communicates
+differently than they do — aimed at **diffusing the tension that
+misunderstanding causes**, not just at literal semantic fidelity. Those two
+goals usually agree; when they don't, this tool optimizes for the first.
 
-## Why the direction is ND → NT only, on purpose
-
-The double empathy problem (Milton) holds that miscommunication between
-neurotypes is mutual, not a one-sided ND deficit. This tool doesn't dispute
-that. It's scoped narrower anyway: in practice, the burden of crossing the gap
-already falls disproportionately on ND people (masking, code-switching,
-constant self-translation). A tool that meets people where that labor already
-sits isn't endorsing the imbalance — it's declining to pretend a translation
-tool alone can rebalance something structural. This is a scope choice, not a
-claim about fairness, and it doesn't rule out an NT → ND direction later.
+This started scoped narrowly to neurodivergent-to-neurotypical communication.
+It's since generalized: the mechanism was never actually specific to that
+pairing — it reads how *this particular person* writes and reworks toward
+legibility for someone different, whoever that is on either side. ADHD,
+autism, a difference in professional or cultural register, or nothing
+diagnostic at all — the tool doesn't need to know, and doesn't ask. Two
+people with different styles can each run it, in whichever direction they
+need, at whatever moment they need it.
 
 ## Personalization
 
 **What gets personalized, and why it isn't generic.** A single canned
-"neurodivergent communication style" template would just be a different
-flattening projection, not an improvement on the NT world's flattening. The
-tool needs an actual model of *this* person's voice, not a category.
+"communication style" template would just be a different flattening
+projection, not an improvement on whatever it's flattening away. The tool
+needs an actual model of *this* person's voice, not a category.
 
 **Where that signal comes from.** Not curated messages to coworkers — how
 someone talks *to an LLM* itself: register shifts, syntax breaks, associative
@@ -42,9 +40,9 @@ This tool's job is to use the comprehension side without reintroducing the
 tidying side.
 
 **How the profile gets built — user-authored, not silently inferred.** The
-system should never build an opaque behavioral profile behind someone's back;
-that's uncomfortably close to the external diagnosing ND people already
-contend with. Concretely:
+system should never build an opaque behavioral profile behind someone's
+back; that's uncomfortably close to being externally diagnosed or labeled by
+a system that claims to know you better than you know yourself. Concretely:
 - A **freeform, user-editable "how I naturally communicate" note** is the
   actual profile — the person's own words, always visible, always editable.
 - An **optional chat-archive upload** (ChatGPT/Claude JSON exports) can draft
@@ -66,8 +64,8 @@ this tool's job.
 
 ## Output honesty
 
-Not every message translates completely — some lived experience genuinely
-doesn't have a clean NT-legible equivalent. The tool says so rather than
+Not every message translates completely — some things genuinely don't have
+a clean equivalent for a different kind of reader. The tool says so rather than
 faking completeness: a translation can come back with a short note on what
 didn't fully carry over, instead of silently discarding it. A confidently
 wrong translation is worse than an honestly incomplete one, because it lets
@@ -131,8 +129,8 @@ Output has a one-click copy so it can be dropped straight into a text/email/
 Slack thread — that's the whole point of the tool. A **subtle, per-message,
 opt-in toggle** lets the original be included alongside the translation when
 copying. This matters structurally: a translator that only ever hands out the
-smoothed version and hides the original is still asking the ND person to
-erase their own voice, just doing the erasing on their behalf. Showing both
+smoothed version and hides the original is still asking the sender to erase
+their own voice, just doing the erasing on their behalf. Showing both
 is closer to subtitling than dubbing — the original stays visible and
 authentic, the translation is offered *alongside* it, not *instead of* it.
 Over time, a specific recipient seeing both repeatedly may start parsing the
@@ -185,7 +183,6 @@ compromises the other.
   only, deliberately, to "give it space to actually work" rather than adding
   latency and ASR-accuracy problems on top of an already hard translation
   problem.
-- NT → ND direction — not ruled out, just not built yet.
 - A model of specific listeners/recipients from a person's own LLM-
   conversation corpus — not attempted; partly addressed instead by incoming
   mode and shared voice notes (see above).

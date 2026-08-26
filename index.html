@@ -360,9 +360,8 @@
   </div>
 
   <details class="about">
-    <summary>Why this only translates one direction, and why it isn't 100%</summary>
-    <p>U/I only reworks neurodivergent → neurotypical phrasing, on purpose. Miscommunication between neurotypes is a two-way problem, not a one-sided deficit — but in practice, the work of crossing that gap already falls disproportionately on neurodivergent people. This tool meets people where that labor already sits; it isn't claiming to fix the imbalance itself.</p>
-    <p>It also won't claim a message translated completely when it didn't. Some things genuinely don't have a clean neurotypical-legible equivalent — U/I will say so in a note rather than quietly smoothing over what got lost.</p>
+    <summary>Why it isn't 100%</summary>
+    <p>U/I won't claim a message translated completely when it didn't. Some things genuinely don't have a clean equivalent for a different kind of reader — U/I will say so in a note rather than quietly smoothing over what got lost.</p>
     <p>Your API key, voice notes, and any archive-derived messages are stored only in this browser, on this device, and are never sent anywhere except directly to Anthropic when you translate. There is no account, no backend, and no export — the "clear all local data" button really deletes it.</p>
   </details>
 </div>
@@ -563,13 +562,13 @@
       : 'No communication-style notes have been provided yet for this person; translate conservatively without assuming a specific style.';
     const detailInstruction = DETAIL_LEVEL_INSTRUCTIONS[state.detailLevel] || DETAIL_LEVEL_INSTRUCTIONS.balanced;
     return [
-      'You are part of U/I, a tool that helps a specific neurodivergent (ND) person\'s own written messages be understood by neurotypical (NT) readers — without erasing how they actually talk.',
+      'You are part of U/I, a tool that helps a specific person\'s own written messages be understood by a different kind of reader — without erasing how they actually talk.',
       '',
       'Given one message the person is about to send to someone else:',
-      '1. Reword it for an NT reader, aimed at reducing the chance it gets misread as cold, blunt, confusing, or oversharing — while preserving what the person actually meant and intended. When faithfulness to the literal wording and reducing misunderstanding pull in different directions, prioritize reducing misunderstanding.',
+      '1. Reword it for a reader who communicates differently than they do, aimed at reducing the chance it gets misread as cold, blunt, confusing, or oversharing — while preserving what the person actually meant and intended. When faithfulness to the literal wording and reducing misunderstanding pull in different directions, prioritize reducing misunderstanding.',
       '2. Do not add claims, feelings, or content the original didn\'t express or imply.',
-      '3. Do not lecture, moralize, or explain neurodivergence to the reader — just produce the reworded message itself.',
-      '4. If some part of the original genuinely has no clean NT-legible equivalent, say so briefly instead of pretending the rewrite is complete. If everything carried over cleanly, don\'t mention this at all.',
+      '3. Do not lecture, moralize, or explain the person\'s communication style to the reader — just produce the reworded message itself.',
+      '4. If some part of the original genuinely has no clean equivalent for that reader, say so briefly instead of pretending the rewrite is complete. If everything carried over cleanly, don\'t mention this at all.',
       detailInstruction,
       '',
       profileBlock,
@@ -700,7 +699,7 @@
   <header class="masthead">
     <p class="eyebrow">User manual</p>
     <h1>U/I</h1>
-    <p class="lede">A text-to-text tool that reworks your own message into phrasing more legible to a neurotypical reader — using your own Anthropic API key, entirely from your browser.</p>
+    <p class="lede">A text-to-text tool that reworks your own message into phrasing more legible to a different kind of reader — using your own Anthropic API key, entirely from your browser.</p>
     <div class="factrow">
       <span><b>Runs</b>&nbsp;entirely in your browser</span>
       <span><b>Calls</b>&nbsp;the Claude API directly, with your key</span>
@@ -719,7 +718,7 @@
         <li><a href="#archive">Chat archive uploads</a></li>
         <li><a href="#settings">Settings &amp; your API key</a></li>
         <li><a href="#privacy">Data &amp; privacy</a></li>
-        <li><a href="#direction">Why one direction, and not 100%</a></li>
+        <li><a href="#direction">Why it isn't 100%</a></li>
         <li><a href="#troubleshooting">Troubleshooting</a></li>
       </ol>
     </nav>
@@ -727,7 +726,7 @@
       <section id="translate">
         <p class="sec-num">01</p>
         <h2>Translating a message</h2>
-        <p>Paste or write the message you're about to send into the input box and press <code>translate</code>. U/I sends it to Claude, using your API key, and returns a version reworded for a neurotypical reader.</p>
+        <p>Paste or write the message you're about to send into the input box and press <code>translate</code>. U/I sends it to Claude, using your API key, and returns a version reworded for a reader who communicates differently than you do.</p>
         <p>If part of the original doesn't survive cleanly into the rewrite, a note appears underneath explaining what was left out and why — the tool won't claim a translation is complete when it isn't.</p>
         <p>Use <code>copy</code> to place the reworded message on your clipboard. Turn on "include my original when I copy" first if you want the original sent alongside it — useful for a recipient you're building mutual understanding with over time.</p>
       </section>
@@ -774,9 +773,8 @@
       </section>
       <section id="direction">
         <p class="sec-num">08</p>
-        <h2>Why one direction, and not 100%</h2>
-        <p>U/I only reworks neurodivergent phrasing into neurotypical-legible phrasing, on purpose. The work of crossing that gap already falls disproportionately on neurodivergent people, and this meets people where that labor already sits, rather than claiming to fix the imbalance itself.</p>
-        <p>It also won't claim a message translated completely when it didn't — some things genuinely don't have a clean equivalent, and that's disclosed rather than smoothed over.</p>
+        <h2>Why it isn't 100%</h2>
+        <p>U/I won't claim a message translated completely when it didn't — some things genuinely don't have a clean equivalent for a different kind of reader, and that's disclosed rather than smoothed over.</p>
       </section>
       <section id="troubleshooting">
         <p class="sec-num">09</p>
