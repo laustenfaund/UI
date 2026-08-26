@@ -72,6 +72,29 @@ didn't fully carry over, instead of silently discarding it. A confidently
 wrong translation is worse than an honestly incomplete one, because it lets
 someone believe they understood when they didn't.
 
+## Detail level: a separate axis from tone
+
+The tension-vs-fidelity tradeoff above is about *tone* — when literal
+wording and reducing misread-tension pull apart, the tool leans toward
+de-escalating. There's a second, independent axis: how much of the
+original's nuance and detail survives versus how short and immediately
+readable the output is. That's not about the sender's tone, it's about the
+*reader's* processing load, and different recipients genuinely need
+different amounts of it — someone might be well served by the shortest,
+plainest version that lands the core point, while someone else would
+rather have more of the original's texture preserved even if it takes more
+effort to read. Neither is more "correct," so it isn't baked into one fixed
+behavior — it's a per-message control (Plain / Balanced / Full detail),
+remembered as a default but changeable message to message, since the right
+level depends on who's receiving *this* message, not on a fixed trait of
+the sender.
+
+This interacts with output honesty rather than working against it: the
+more a version compresses toward Plain, the more likely something real
+gets compressed away — and that's exactly when the honesty note is more
+likely to fire, disclosing the compression instead of letting brevity
+quietly stand in for completeness.
+
 ## Forwarding, and showing both
 
 Output has a one-click copy so it can be dropped straight into a text/email/
