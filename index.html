@@ -552,16 +552,25 @@
   }
 
   const DETAIL_LEVEL_INSTRUCTIONS = {
-    plain: '5. Prioritize brevity and immediate plain-language clarity: short sentences, everyday words, and it\'s fine to compress or simplify secondary detail and qualifications to keep it quick to read. If real nuance gets compressed away as a result, that counts as something to flag in the NOTE section — brevity doesn\'t excuse silently dropping it.',
-    balanced: '5. Balance clarity with completeness: don\'t pad the message with unneeded detail, but don\'t strip out nuance or qualification just to make it shorter either.',
-    full: '5. Preserve as much of the original\'s nuance, qualification, and detail as you reasonably can, even if the result reads a little longer or takes more effort — reword for tone and clarity, but don\'t compress away substance just to shorten it.'
+    plain: 'Prioritize brevity and immediate plain-language clarity: short sentences, everyday words, and it\'s fine to compress or simplify secondary detail and qualifications to keep it quick to read. If real nuance gets compressed away as a result, that counts as something to flag in the NOTE section — brevity doesn\'t excuse silently dropping it.',
+    balanced: 'Balance clarity with completeness: don\'t pad the message with unneeded detail, but don\'t strip out nuance or qualification just to make it shorter either.',
+    full: 'Preserve as much of the original\'s nuance, qualification, and detail as you reasonably can, even if the result reads a little longer or takes more effort — reword for tone and clarity, but don\'t compress away substance just to shorten it.'
   };
+  // Returns an array of system content blocks rather than one string: the
+  // detail level is chosen per message, so it's the one part of this prompt
+  // that changes on every call. Everything else — the rules, the response
+  // format, and the person's voice profile — is identical call after call,
+  // so it's cache_control'd as its own block; the volatile detail-level
+  // line is a separate, uncached block appended after it. Splitting it out
+  // this way (rather than leaving it inline as rule 5, ahead of the stable
+  // profile block) means a plain detail-level change no longer invalidates
+  // the cached prefix on every single translation.
   function buildTranslateSystemPrompt() {
     const profileBlock = state.profile.trim()
       ? 'Here is how this person has described their own natural communication style, in their own words — use it to calibrate tone and what\'s worth preserving, not as a checklist:\n"""\n' + state.profile.trim() + '\n"""'
       : 'No communication-style notes have been provided yet for this person; translate conservatively without assuming a specific style.';
     const detailInstruction = DETAIL_LEVEL_INSTRUCTIONS[state.detailLevel] || DETAIL_LEVEL_INSTRUCTIONS.balanced;
-    return [
+    const stable = [
       'You are part of U/I, a tool that helps a specific person\'s own written messages be understood by a different kind of reader — without erasing how they actually talk.',
       '',
       'Given one message the person is about to send to someone else:',
@@ -569,7 +578,6 @@
       '2. Do not add claims, feelings, or content the original didn\'t express or imply.',
       '3. Do not lecture, moralize, or explain the person\'s communication style to the reader — just produce the reworded message itself.',
       '4. If some part of the original genuinely has no clean equivalent for that reader, say so briefly instead of pretending the rewrite is complete. If everything carried over cleanly, don\'t mention this at all.',
-      detailInstruction,
       '',
       profileBlock,
       '',
@@ -580,6 +588,10 @@
       'NOTE:',
       '<what didn\'t fully carry over, or the single word NONE if nothing is missing>'
     ].join('\n');
+    return [
+      { type: 'text', text: stable, cache_control: { type: 'ephemeral' } },
+      { type: 'text', text: '5. For this message specifically: ' + detailInstruction },
+    ];
   }
 
   function parseTranslateResponse(text) {
@@ -598,7 +610,7 @@
     const senderBlock = state.contactProfile.trim()
       ? 'Here is how the sender of this message has described their own natural communication style, in their own words — use it to interpret their actual intent more accurately:\n"""\n' + state.contactProfile.trim() + '\n"""'
       : 'No notes are available about how the sender of this message communicates.';
-    return [
+    const text = [
       'You are part of U/I, helping a specific person understand a message someone else sent them — without telling them how they should feel about it.',
       '',
       'Given one message this person received:',
@@ -617,6 +629,11 @@
       'WATCH FOR:',
       '<what could be easy to misread, or the single word NONE if nothing stands out>'
     ].join('\n');
+    // Nothing here varies per message (unlike the translate prompt, there's
+    // no per-call detail-level setting) — the whole thing is a stable
+    // prefix across every "incoming" call in a session, so it's cached as
+    // one block.
+    return [{ type: 'text', text, cache_control: { type: 'ephemeral' } }];
   }
 
   function parseIncomingResponse(text) {
