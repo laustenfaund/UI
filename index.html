@@ -698,7 +698,7 @@
   .factrow { display: flex; flex-wrap: wrap; gap: 8px 18px; font-family: var(--mono); font-size: 12px; color: var(--text2); }
   .factrow b { color: var(--text); font-weight: 600; }
   .layout { display: grid; grid-template-columns: 200px 1fr; gap: 36px; align-items: start; }
-  .toc { position: sticky; top: 24px; max-height: calc(100vh - 48px); overflow-y: auto; }
+  .toc { position: sticky; top: 24px; max-height: calc(100vh - 48px); overflow-y: auto; overscroll-behavior: contain; }
   .toc-label { font-family: var(--mono); font-size: 11px; letter-spacing: 0.08em; text-transform: uppercase; color: var(--text2); margin: 0 0 10px; }
   .toc ol { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 7px; }
   .toc a { color: var(--text2); text-decoration: none; font-size: 13px; }
