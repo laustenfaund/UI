@@ -189,12 +189,14 @@
   .overlay {
     position: fixed; inset: 0; background: rgba(0,0,0,0.6); display: none;
     align-items: center; justify-content: center; z-index: 999; padding: 16px;
+    isolation: isolate; transform: translateZ(0); overflow: hidden;
   }
   .overlay .box { background: var(--panel); border: 1px solid var(--line); padding: 20px; max-width: 420px; width: 100%; }
   .overlay .box h3 { margin-top: 0; color: var(--warn); font-family: var(--mono); font-size: 16px; }
   .manual-overlay-box {
     background: var(--panel); border: 1px solid var(--line); width: 960px; max-width: 96vw; height: 88vh;
     display: flex; flex-direction: column; gap: 10px; padding: 12px;
+    isolation: isolate; transform: translateZ(0);
   }
   .manual-overlay-head {
     display: flex; align-items: center; justify-content: space-between; font-family: var(--mono);
@@ -805,6 +807,18 @@
   </div>
   <footer>U/I is a self-contained page — this manual describes its behavior as installed, based on how the app itself is built. It has no version number to cite.</footer>
 </div>
+<script>
+  // Handle TOC clicks ourselves instead of native #hash navigation — on some
+  // mobile browsers, native anchor-jumps inside a srcdoc iframe can trigger a
+  // scroll/reflow that visibly bleeds through to the page behind this modal.
+  document.querySelectorAll('.toc a[href^="#"]').forEach((a) => {
+    a.addEventListener('click', (e) => {
+      e.preventDefault();
+      const target = document.getElementById(a.getAttribute('href').slice(1));
+      if (target) target.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    });
+  });
+<\/script>
 </body></html>`;
 
   // ---------- UI wiring ----------
