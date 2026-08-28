@@ -2,7 +2,7 @@
 // offline and so Chrome/Android recognize this as a real installable PWA.
 // Translating still needs a network connection either way - this only
 // caches the static shell, never anything you type or any API response.
-const CACHE = 'ui-shell-v2';
+const CACHE = 'ui-shell-v3';
 const ASSETS = ['./', './index.html', './manifest.json', './icons/icon-192.png', './icons/icon-512.png'];
 
 self.addEventListener('install', (event) => {
