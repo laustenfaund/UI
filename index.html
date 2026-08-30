@@ -1045,7 +1045,13 @@
   $('translate-btn').addEventListener('click', async () => {
     const input = $('input-text').value.trim();
     $('translate-error').style.display = 'none';
-    if (!input) return;
+    if (!input) {
+      $('translate-error').textContent = mode === 'incoming'
+        ? 'Paste the message you received into the box above first — this one, not the voice-notes field below it.'
+        : 'Write or paste the message you want to send first.';
+      $('translate-error').style.display = 'block';
+      return;
+    }
     const btn = $('translate-btn');
     btn.disabled = true;
     $('translate-status').textContent = mode === 'incoming' ? 'interpreting…' : 'translating…';
