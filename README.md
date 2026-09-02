@@ -25,6 +25,17 @@ U/I is a single portable HTML file — no build step, no install.
 It can also be served as a static site (e.g. GitHub Pages) so it installs
 like an app on a phone — the same file works both ways.
 
+## The hosted variant
+
+[`hosted/`](hosted) is a clone of this same app with one change: instead of
+each person pasting in their own Anthropic API key, translation is gated by
+a passcode and routed through a small proxy (in [`worker/`](worker)) that
+holds a single shared key server-side, with hard per-person and total
+spending caps enforced before any request goes out. Use this if you want
+to give a few people access without also giving them your API key. See
+[`worker/README.md`](worker/README.md) to deploy the proxy; the UI is
+otherwise identical to the plain version above.
+
 ## Privacy & data
 
 U/I calls the Claude API directly from your browser using your own API key.
