@@ -9,9 +9,11 @@ compatibility_date = "2025-01-01"
 [vars]
 ALLOWED_ORIGIN = "https://REPLACE-WITH-YOUR-ORIGIN"
 
-# Cents, not dollars. $5.00/day per passcode, $20.00/month total.
-PER_USER_DAILY_CAP_CENTS = "500"
-GLOBAL_MONTHLY_CAP_CENTS = "2000"
+# Cents, not dollars. $4.00/day per passcode, $15.00/month total.
+# Sized for single-shot rewrites (no tool-calling loop) with a variable
+# max_tokens ceiling up to 4096.
+PER_USER_DAILY_CAP_CENTS = "400"
+GLOBAL_MONTHLY_CAP_CENTS = "1500"
 
 # --- KV namespaces ---
 # Create with `wrangler kv namespace create USAGE` and
