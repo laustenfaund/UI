@@ -174,6 +174,11 @@
   }
   .draft-box { border: 1px solid var(--accent); border-radius: 3px; padding: 12px; margin-top: 10px; }
   .hint { font-size: 12px; color: var(--text2); margin-top: 6px; }
+  .changes-box { border: 1px dashed var(--accent); background: var(--panel-raised); border-radius: 3px; padding: 8px 10px; margin-bottom: 10px; font-size: 12.5px; color: var(--text2); white-space: pre-wrap; }
+  .chat-transcript { max-height: 220px; overflow-y: auto; border: 1px solid var(--line-soft); background: var(--panel-raised); padding: 10px; margin-top: 10px; display: flex; flex-direction: column; gap: 10px; }
+  .chat-msg { font-size: 13px; line-height: 1.5; }
+  .chat-msg .who { font-family: var(--mono); font-size: 10px; letter-spacing: 0.06em; text-transform: uppercase; color: var(--text2); display: block; margin-bottom: 2px; }
+  .chat-msg.assistant .who { color: var(--accent); }
 
   .checkbox-row { display: flex; align-items: center; gap: 8px; font-size: 13px; color: var(--text2); }
   .checkbox-row input { width: auto; }
@@ -289,11 +294,29 @@
         </div>
         <div id="draft-box" class="draft-box" style="display:none;">
           <label class="field-label">Draft — review before using it</label>
+          <div id="changes-box" class="changes-box" style="display:none;">
+            <label class="field-label" style="margin-bottom:4px;">What changed, combining this with your current notes</label>
+            <div id="changes-text"></div>
+          </div>
           <textarea id="draft-text" rows="5"></textarea>
-          <div class="row" style="margin-top:8px;">
+          <div class="row" style="margin-top:8px; flex-wrap:wrap;">
             <button class="ptt" id="use-draft-btn">use this as my voice notes</button>
+            <button class="ghost-btn" id="recombine-draft-btn" style="display:none;">recombine with current notes</button>
             <button class="ghost-btn" id="discard-draft-btn">discard</button>
           </div>
+        </div>
+      </div>
+
+      <div style="margin-top:18px; padding-top:16px; border-top:1px solid var(--line-soft);">
+        <label class="field-label">Optional: build a starting point by chatting</label>
+        <p class="hint" style="margin-top:0;">Answer a few short questions about how you naturally write. This conversation isn't saved anywhere — only the draft you choose to keep is, and it's shown to you to edit or reject before anything is stored.</p>
+        <div id="chat-builder-transcript" class="chat-transcript" aria-live="polite"></div>
+        <textarea id="chat-builder-input" rows="2" placeholder="Type your answer…" style="margin-top:10px;"></textarea>
+        <div class="row" style="margin-top:8px; flex-wrap:wrap;">
+          <button class="ghost-btn" id="chat-builder-send-btn">send</button>
+          <button class="ghost-btn" id="chat-builder-draft-btn" disabled>draft profile from this chat</button>
+          <button class="ghost-btn" id="chat-builder-reset-btn">reset chat</button>
+          <span id="chat-builder-status" class="small" style="display:none;">thinking…</span>
         </div>
       </div>
 
@@ -531,7 +554,10 @@
   // Worker that holds the real Anthropic key server-side, checks the
   // passcode below, and enforces spending caps before forwarding on.
   const API_URL = ASSISTANT_PROXY_URL + '/v1/messages';
-  async function callClaude({ system, userContent, maxTokens }) {
+  // `messages` lets a caller send a full multi-turn history (the chat voice-
+  // note builder); everything else still just passes `userContent` for a
+  // single-turn call, which is wrapped into a one-message array as before.
+  async function callClaude({ system, userContent, messages, maxTokens }) {
     if (!state.apiKey) throw new Error('NO_KEY');
     const res = await fetch(API_URL, {
       method: 'POST',
@@ -543,7 +569,7 @@
         model: state.model,
         max_tokens: maxTokens || 1024,
         system: system,
-        messages: [{ role: 'user', content: userContent }]
+        messages: messages || [{ role: 'user', content: userContent }]
       })
     });
     if (!res.ok) {
@@ -665,6 +691,76 @@
     'Respond with only the description text, nothing else — no preamble, no headers.'
   ].join('\n');
 
+  // ---------- chat voice-note builder ----------
+  // The interviewer role: asked on every turn of the chat, so it's cached
+  // like the translate/incoming prompts rather than re-sent uncached the
+  // way the one-shot archive/recombine drafting prompts below are.
+  const CHAT_BUILDER_SYSTEM_TEXT = [
+    'You are helping a specific person build a short, editable description of how they naturally communicate, through a short back-and-forth conversation instead of a form.',
+    '',
+    'Rules:',
+    '- Ask exactly one short, specific, non-diagnostic question at a time about how they actually write or talk — sentence structure, directness, humor, how they handle disagreement, what tends to get misread about them, etc. Build on what they\'ve already told you rather than repeating ground.',
+    '- Do not diagnose, label, or speculate about any condition.',
+    '- Do not evaluate or judge what they describe.',
+    '- Keep your turns brief — a sentence or two, one question, no lists.',
+    '- After a handful of exchanges, or whenever they signal they\'re done or want to wrap up, say so briefly and tell them they can press "draft profile from this chat" whenever ready — don\'t keep pushing for more once there\'s enough to work with.',
+    '- You are only the interviewer in this reply; you are not writing the final draft here.'
+  ].join('\n');
+  function buildChatBuilderSystemPrompt() {
+    return [{ type: 'text', text: CHAT_BUILDER_SYSTEM_TEXT, cache_control: { type: 'ephemeral' } }];
+  }
+
+  // Drafts a profile from the chat transcript, same spirit as
+  // PROFILE_DRAFT_SYSTEM above but reading a Q&A dialogue instead of raw
+  // archive samples. Only the person's own turns are used as source
+  // material; the interviewer's questions are context, not content.
+  const CHAT_PROFILE_DRAFT_SYSTEM = [
+    'You are helping draft a short, editable description of how a specific person naturally communicates, based on a conversation where an assistant asked them questions and they answered in their own words.',
+    '',
+    'Rules:',
+    '- Base the draft only on what the person themselves said (the "You:" turns) — not on the assistant\'s questions, and without inventing anything beyond what they actually described.',
+    '- Describe only communication patterns actually visible in their answers: sentence structure, register shifts, directness, humor, how they handle disagreement, recurring phrasings, etc.',
+    '- Do not diagnose, label, or speculate about any condition or diagnosis.',
+    '- Do not evaluate or judge the patterns (no "struggles with", no "fails to").',
+    '- Write it in second person, addressed to the person themselves (e.g. "You tend to…").',
+    '- Keep it under roughly 180 words.',
+    '',
+    'Respond with only the description text, nothing else — no preamble, no headers.'
+  ].join('\n');
+
+  const CHAT_OPENER = 'Tell me about a message you sent recently that didn’t land the way you meant it to — or just describe, in your own words, how you naturally write.';
+
+  // ---------- recombining new material with existing voice notes ----------
+  // Used whenever a draft (from the archive or the chat builder) is shown
+  // and there are already-saved voice notes to reconcile it against, so
+  // "save" never has to mean "silently throw away what was there before."
+  const RECOMBINE_SYSTEM = [
+    'You are helping reconcile a person\'s existing voice notes (a description of how they naturally communicate) with new material describing the same thing, so they end up with one coherent, non-redundant set of notes rather than two overlapping ones.',
+    '',
+    'Rules:',
+    '- Keep everything from both that is still accurate and not redundant; don\'t drop real detail just to shorten it.',
+    '- When the two disagree or conflict, don\'t silently pick one — resolve it as reasonably as you can in the merged text, and name the conflict and how you resolved it in the CHANGES section, so the person can override you if you got it wrong.',
+    '- Do not diagnose, label, or evaluate the person\'s communication style.',
+    '- Write the merged notes in second person, addressed to the person themselves (e.g. "You tend to…").',
+    '- Keep the merged result under roughly 220 words.',
+    '',
+    'Respond in exactly this format, nothing else:',
+    'MERGED:',
+    '<the full merged voice notes>',
+    '',
+    'CHANGES:',
+    '<plain-language summary of what was combined, dropped as redundant, or resolved when the two disagreed, or the single word NONE if the new material was simply additive with nothing to reconcile>'
+  ].join('\n');
+
+  function parseRecombineResponse(text) {
+    const mMatch = text.match(/MERGED:\s*([\s\S]*?)(?:\n\s*CHANGES:|$)/i);
+    const cMatch = text.match(/CHANGES:\s*([\s\S]*)$/i);
+    const merged = (mMatch ? mMatch[1] : text).trim();
+    let changes = cMatch ? cMatch[1].trim() : '';
+    if (/^none$/i.test(changes)) changes = '';
+    return { merged, changes };
+  }
+
   function sampleArchiveForDraft(archive, charCap) {
     charCap = charCap || 12000;
     if (!archive.length) return '';
@@ -740,6 +836,7 @@
         <li><a href="#incoming">Incoming: reading a message</a></li>
         <li><a href="#voice">Your voice</a></li>
         <li><a href="#archive">Chat archive uploads</a></li>
+        <li><a href="#chatbuilder">Building voice notes by chat</a></li>
         <li><a href="#settings">Settings &amp; your passcode</a></li>
         <li><a href="#privacy">Data &amp; privacy</a></li>
         <li><a href="#direction">Why it isn't 100%</a></li>
@@ -782,26 +879,32 @@
         <p class="sec-num">05</p>
         <h2>Chat archive uploads</h2>
         <p>Optionally upload ChatGPT or Claude export <code>.json</code> files to draft a starting point for your voice notes. U/I reads only <i>your own</i> messages from them, never the assistant's replies, and only your extracted messages are stored — not full conversations.</p>
-        <p>A draft is never saved automatically: review it, edit it if needed, and choose "use this as my voice notes" yourself.</p>
+        <p>A draft is never saved automatically: review it, edit it if needed, and choose "use this as my voice notes" yourself. If you already have voice notes saved, a "recombine with current notes" option appears next to the draft — instead of replacing them outright, U/I reconciles the new draft with what's already there, shows you what it changed or resolved, and still waits for you to approve the result before anything is saved.</p>
+      </section>
+      <section id="chatbuilder">
+        <p class="sec-num">06</p>
+        <h2>Building voice notes by chat</h2>
+        <p>A third way to start a draft: answer a few short questions from U/I about how you naturally write, in a short back-and-forth instead of a form or an archive upload. Ask for "draft profile from this chat" whenever you feel like there's enough to work with — the conversation itself isn't saved anywhere, only the draft you go on to review and accept is.</p>
+        <p>The resulting draft goes through the same review step as an archive draft: edit it, discard it, or — if you already have voice notes — recombine it with what's already there instead of overwriting.</p>
       </section>
       <section id="settings">
-        <p class="sec-num">06</p>
+        <p class="sec-num">07</p>
         <h2>Settings &amp; your passcode</h2>
         <p>This build of U/I doesn't take your own Anthropic key. Enter the passcode you were given into Settings, and translations are sent through the app owner's own proxy, which holds the real key and enforces a spending cap — no account with U/I itself, but requests do pass through that proxy rather than going straight to Anthropic.</p>
       </section>
       <section id="privacy">
-        <p class="sec-num">07</p>
+        <p class="sec-num">08</p>
         <h2>Data &amp; privacy</h2>
-        <p>Your passcode, voice notes, any voice notes someone shared with you, and any archive-derived messages are written only to this browser's local storage, on this device. Voice notes and archive-derived messages never leave it; a message you translate, and your passcode, are sent to the app owner's proxy, which forwards them to Anthropic.</p>
+        <p>Your passcode, voice notes, any voice notes someone shared with you, and any archive-derived messages are written only to this browser's local storage, on this device. Voice notes and archive-derived messages never leave it; a message you translate, and your passcode, are sent to the app owner's proxy, which forwards them to Anthropic. The chat voice-note builder's conversation is not written to storage at all — closing or resetting it discards it, whether or not you drafted from it.</p>
         <div class="note">"Clear all local data" permanently deletes all of it from this browser — it's a real delete, not a UI reset. There's no export or backup built in beyond copying your own voice notes out; your only durable copy is your passcode and your own written voice notes.</div>
       </section>
       <section id="direction">
-        <p class="sec-num">08</p>
+        <p class="sec-num">09</p>
         <h2>Why it isn't 100%</h2>
-        <p>U/I won't claim a message translated completely when it didn't — some things genuinely don't have a clean equivalent for a different kind of reader, and that's disclosed rather than smoothed over.</p>
+        <p>U/I won't claim a message translated completely when it didn't — some things genuinely don't have a clean equivalent for a different kind of reader, and that's disclosed rather than smoothed over. The same honesty principle is why recombining voice notes always shows what changed instead of quietly merging two versions into one.</p>
       </section>
       <section id="troubleshooting">
-        <p class="sec-num">09</p>
+        <p class="sec-num">10</p>
         <h2>Troubleshooting</h2>
         <p><b>Nothing happens when I press translate</b> — check the input box isn't empty; an empty message is silently ignored.</p>
         <p><b>An error says the response was cut off</b> — this can happen with a very long or complex message; try shortening it, or try again.</p>
@@ -969,6 +1072,18 @@
     e.target.value = '';
   });
 
+  // Opens the shared draft/review box regardless of which path produced the
+  // text (archive sample, chat builder, or a recombine pass) — one review
+  // step, one approval gate, no matter the source. Shows "recombine with
+  // current notes" only when there's something to recombine against.
+  function openDraftBox(text) {
+    $('draft-text').value = text;
+    $('draft-box').style.display = 'block';
+    $('changes-box').style.display = 'none';
+    $('changes-text').textContent = '';
+    $('recombine-draft-btn').style.display = state.profile.trim() ? 'inline-block' : 'none';
+  }
+
   $('draft-profile-btn').addEventListener('click', async () => {
     const btn = $('draft-profile-btn');
     btn.disabled = true;
@@ -982,8 +1097,7 @@
         maxTokens: 2048
       });
       if (!draft.trim()) throw new Error(emptyResponseMessage(stopReason));
-      $('draft-text').value = draft.trim();
-      $('draft-box').style.display = 'block';
+      openDraftBox(draft.trim());
     } catch (err) {
       alert('Could not draft a profile: ' + describeError(err));
     } finally {
@@ -997,8 +1111,140 @@
     await idbSet(KEY_PROFILE, state.profile);
     refreshSettingsUI();
     $('draft-box').style.display = 'none';
+    $('changes-box').style.display = 'none';
   });
-  $('discard-draft-btn').addEventListener('click', () => { $('draft-box').style.display = 'none'; });
+  $('discard-draft-btn').addEventListener('click', () => {
+    $('draft-box').style.display = 'none';
+    $('changes-box').style.display = 'none';
+  });
+
+  $('recombine-draft-btn').addEventListener('click', async () => {
+    const btn = $('recombine-draft-btn');
+    const original = btn.textContent;
+    btn.disabled = true;
+    btn.textContent = 'combining…';
+    try {
+      const current = state.profile.trim();
+      const incoming = $('draft-text').value.trim();
+      const userContent = 'CURRENT VOICE NOTES:\n"""\n' + (current || '(none)') + '\n"""\n\nNEW MATERIAL:\n"""\n' + incoming + '\n"""';
+      const { text: raw, stopReason } = await callClaude({
+        system: RECOMBINE_SYSTEM,
+        userContent,
+        maxTokens: 2048
+      });
+      if (!raw.trim()) throw new Error(emptyResponseMessage(stopReason));
+      const { merged, changes } = parseRecombineResponse(raw);
+      $('draft-text').value = merged;
+      if (changes) {
+        $('changes-text').textContent = changes;
+        $('changes-box').style.display = 'block';
+      } else {
+        $('changes-box').style.display = 'none';
+      }
+    } catch (err) {
+      alert('Could not recombine: ' + describeError(err));
+    } finally {
+      btn.textContent = original;
+      btn.disabled = false;
+    }
+  });
+
+  // ---------- chat voice-note builder ----------
+  // Transcript is deliberately transient (module-scope, not in `state`,
+  // never persisted) — same reasoning DESIGN.md gives for not persisting
+  // translated messages: only the reviewed, accepted draft should survive.
+  let chatMessages = [];
+
+  function renderChatTranscript() {
+    const el = $('chat-builder-transcript');
+    el.innerHTML = '';
+    for (const m of chatMessages) {
+      const row = document.createElement('div');
+      row.className = 'chat-msg ' + m.role;
+      const who = document.createElement('span');
+      who.className = 'who';
+      who.textContent = m.role === 'assistant' ? 'u/i' : 'you';
+      const body = document.createElement('div');
+      body.textContent = m.content;
+      row.appendChild(who);
+      row.appendChild(body);
+      el.appendChild(row);
+    }
+    el.scrollTop = el.scrollHeight;
+  }
+
+  function resetChatBuilder() {
+    chatMessages = [{ role: 'assistant', content: CHAT_OPENER }];
+    renderChatTranscript();
+    $('chat-builder-draft-btn').disabled = true;
+  }
+
+  async function sendChatBuilderTurn() {
+    const input = $('chat-builder-input');
+    const text = input.value.trim();
+    if (!text) return;
+    chatMessages.push({ role: 'user', content: text });
+    input.value = '';
+    renderChatTranscript();
+    $('chat-builder-draft-btn').disabled = false;
+
+    const sendBtn = $('chat-builder-send-btn');
+    const status = $('chat-builder-status');
+    sendBtn.disabled = true;
+    status.style.display = 'inline';
+    try {
+      const { text: reply, stopReason } = await callClaude({
+        system: buildChatBuilderSystemPrompt(),
+        messages: chatMessages,
+        maxTokens: 512
+      });
+      chatMessages.push({ role: 'assistant', content: reply.trim() || emptyResponseMessage(stopReason) });
+      renderChatTranscript();
+    } catch (err) {
+      chatMessages.pop(); // don't leave a dangling user turn the assistant never answered
+      renderChatTranscript();
+      alert('Could not get a reply: ' + describeError(err));
+    } finally {
+      sendBtn.disabled = false;
+      status.style.display = 'none';
+    }
+  }
+
+  $('chat-builder-send-btn').addEventListener('click', sendChatBuilderTurn);
+  $('chat-builder-input').addEventListener('keydown', (e) => {
+    if (e.key === 'Enter' && !e.shiftKey) {
+      e.preventDefault();
+      sendChatBuilderTurn();
+    }
+  });
+  $('chat-builder-reset-btn').addEventListener('click', () => {
+    $('chat-builder-input').value = '';
+    resetChatBuilder();
+  });
+  $('chat-builder-draft-btn').addEventListener('click', async () => {
+    const btn = $('chat-builder-draft-btn');
+    const original = btn.textContent;
+    btn.disabled = true;
+    btn.textContent = 'drafting…';
+    try {
+      const transcript = chatMessages
+        .map((m) => (m.role === 'user' ? 'You: ' : 'Assistant: ') + m.content)
+        .join('\n\n');
+      const { text: draft, stopReason } = await callClaude({
+        system: CHAT_PROFILE_DRAFT_SYSTEM,
+        userContent: 'Here is the conversation so far:\n\n' + transcript,
+        maxTokens: 2048
+      });
+      if (!draft.trim()) throw new Error(emptyResponseMessage(stopReason));
+      openDraftBox(draft.trim());
+    } catch (err) {
+      alert('Could not draft a profile: ' + describeError(err));
+    } finally {
+      btn.textContent = original;
+      btn.disabled = false;
+    }
+  });
+  resetChatBuilder();
 
   $('clear-data-btn').addEventListener('click', () => {
     const hasKey = !!state.apiKey;
