@@ -11,6 +11,8 @@ A text-to-text tool that reworks your own message into phrasing more legible to 
 - **Incoming mode** — flip it around: paste a message you received and get what it likely means, plus anything worth watching for that could be easy for you specifically to misread.
 - **Your voice** — a freeform, user-authored description of how you naturally communicate, read before every translation. Nothing about your style is inferred silently. Share it (as plain text) with someone else so their copy of U/I can read your messages more accurately in incoming mode.
 - **Chat archive uploads** (optional) — draft a starting point for your voice notes from a ChatGPT or Claude export. Only your own messages are read; a draft is never saved without your review.
+- **Chat-based voice note builder** — a third way to draft voice notes: answer a few short questions in a guided chat instead of uploading an archive or writing them by hand. The conversation itself is never saved — only the draft you go on to review and accept is.
+- **Recombine on save** — if you already have voice notes saved, a new draft (from an archive upload or the chat builder) can be reconciled with what's there instead of overwritten outright, with a visible summary of what changed before you approve anything.
 - **Built-in manual** — click "manual" in the app for a full walkthrough of every feature.
 
 ## Getting started
