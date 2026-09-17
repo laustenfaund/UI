@@ -282,7 +282,7 @@
         <span id="profile-saved-hint" class="small" style="display:none;">saved</span>
         <span id="export-hint" class="small" style="display:none;">copied</span>
       </div>
-      <p class="hint" style="margin-top:6px;">Sharing your voice notes with someone lets them paste them into their own copy of U/I, under "incoming" below, to interpret your messages more accurately.</p>
+      <p class="hint" style="margin-top:6px;">Sharing your voice notes with someone lets them paste them into their own copy of U/I — into "incoming" to interpret your messages more accurately, or into "outgoing" to tailor what they write specifically for you.</p>
 
       <div style="margin-top:18px; padding-top:16px; border-top:1px solid var(--line-soft);">
         <label class="field-label">Optional: draft a starting point from a chat archive</label>
@@ -334,9 +334,13 @@
         <button class="ghost-btn" id="mode-incoming-btn">incoming — read</button>
       </div>
 
-      <div id="contact-profile-wrap" style="display:none; margin-bottom:16px;">
-        <label class="field-label" for="contact-profile-text">Optional — their shared voice notes, if you have them</label>
-        <textarea id="contact-profile-text" rows="2" placeholder="Paste voice notes someone shared with you, to help interpret messages from them more accurately…"></textarea>
+      <div id="contact-profile-wrap" style="margin-bottom:16px;">
+        <label class="field-label" id="contact-profile-label" for="contact-profile-text">Optional — their shared voice notes, if you have them</label>
+        <textarea id="contact-profile-text" rows="2" placeholder="Paste voice notes someone shared with you, to tailor this message specifically for them…"></textarea>
+        <label class="checkbox-row" id="tailor-toggle-row" style="display:flex; margin-top:8px;">
+          <input type="checkbox" id="tailor-to-recipient-toggle" />
+          tailor this translation to their voice notes above, instead of the current generic version
+        </label>
       </div>
 
       <div class="channel-tag"><span class="badge-letter">A</span> <span id="channel-a-label">your message</span></div>
@@ -598,7 +602,13 @@
   // this way (rather than leaving it inline as rule 5, ahead of the stable
   // profile block) means a plain detail-level change no longer invalidates
   // the cached prefix on every single translation.
-  function buildTranslateSystemPrompt() {
+  //
+  // tailorToRecipient is the same kind of volatile, per-message choice as
+  // detail level (it's a checkbox next to the recipient's pasted voice
+  // notes, off by default) — so when it's on, the recipient block is
+  // appended the same way: after the cached prefix, uncached, rather than
+  // folded into the stable block above it.
+  function buildTranslateSystemPrompt(tailorToRecipient) {
     const profileBlock = state.profile.trim()
       ? 'Here is how this person has described their own natural communication style, in their own words — use it to calibrate tone and what\'s worth preserving, not as a checklist:\n"""\n' + state.profile.trim() + '\n"""'
       : 'No communication-style notes have been provided yet for this person; translate conservatively without assuming a specific style.';
@@ -621,10 +631,17 @@
       'NOTE:',
       '<what didn\'t fully carry over, or the single word NONE if nothing is missing>'
     ].join('\n');
-    return [
+    const blocks = [
       { type: 'text', text: stable, cache_control: { type: 'ephemeral' } },
       { type: 'text', text: '5. For this message specifically: ' + detailInstruction },
     ];
+    if (tailorToRecipient && state.contactProfile.trim()) {
+      blocks.push({
+        type: 'text',
+        text: '6. The person receiving this message has described their own natural communication style, in their own words — use it, alongside everything above, to calibrate this specific rewording for them rather than a generic reader. It doesn\'t override the detail-level instruction in step 5, and it isn\'t a checklist:\n"""\n' + state.contactProfile.trim() + '\n"""'
+      });
+    }
+    return blocks;
   }
 
   function parseTranslateResponse(text) {
@@ -848,6 +865,7 @@
         <p class="sec-num">01</p>
         <h2>Translating a message</h2>
         <p>Paste or write the message you're about to send into the input box and press <code>translate</code>. U/I sends it, via the app owner's proxy, to Claude, and returns a version reworded for a reader who communicates differently than you do.</p>
+        <p>By default this rewording is calibrated only to your own voice notes — it's a generic improvement for "a different kind of reader," not any specific person. If you have voice notes a specific recipient shared with you, paste them into the optional field above the message box and turn on "tailor this translation to their voice notes above" — the rewording is then calibrated to that person specifically, instead of the generic version.</p>
         <p>If part of the original doesn't survive cleanly into the rewrite, a note appears underneath explaining what was left out and why — the tool won't claim a translation is complete when it isn't.</p>
         <p>Use <code>copy</code> to place the reworded message on your clipboard. Turn on "include my original when I copy" first if you want the original sent alongside it — useful for a recipient you're building mutual understanding with over time.</p>
       </section>
@@ -873,7 +891,7 @@
         <p class="sec-num">04</p>
         <h2>Your voice</h2>
         <p>The "how you naturally communicate" notes are written by you, in your own words, and read before every translation to calibrate tone and what's worth preserving. Nothing about your communication style is inferred silently — this field is the only source, and you can edit it any time.</p>
-        <p>"Copy voice notes to share" puts them on your clipboard as plain text, so someone you're messaging can paste them into their own copy of U/I — into the optional field under "incoming" — to read your messages more accurately. It's a plain-text copy, not a live connection.</p>
+        <p>"Copy voice notes to share" puts them on your clipboard as plain text, so someone you're messaging can paste them into their own copy of U/I — into the optional field that now appears in both "outgoing" and "incoming" — to read your messages more accurately, or to tailor what they write specifically for you. It's a plain-text copy, not a live connection.</p>
       </section>
       <section id="archive">
         <p class="sec-num">05</p>
@@ -1011,7 +1029,11 @@
     $('mode-outgoing-btn').classList.toggle('active-mode', mode === 'outgoing');
     $('mode-incoming-btn').classList.toggle('active-mode', mode === 'incoming');
     $('detail-level-wrap').style.display = mode === 'outgoing' ? 'block' : 'none';
-    $('contact-profile-wrap').style.display = mode === 'incoming' ? 'block' : 'none';
+    $('contact-profile-wrap').style.display = 'block';
+    $('contact-profile-text').placeholder = mode === 'outgoing'
+      ? 'Paste voice notes someone shared with you, to tailor this message specifically for them…'
+      : 'Paste voice notes someone shared with you, to help interpret messages from them more accurately…';
+    $('tailor-toggle-row').style.display = mode === 'outgoing' ? 'flex' : 'none';
     $('outgoing-result-controls').style.display = mode === 'outgoing' ? '' : 'none';
     $('channel-a-label').textContent = mode === 'outgoing' ? 'your message' : 'message you received';
     $('channel-b-label').textContent = mode === 'outgoing' ? 'reworded for them' : 'what this likely means';
@@ -1308,7 +1330,7 @@
     $('status-dot').classList.add('live');
     $('status-text').textContent = 'transmitting';
     try {
-      const system = mode === 'incoming' ? buildIncomingSystemPrompt() : buildTranslateSystemPrompt();
+      const system = mode === 'incoming' ? buildIncomingSystemPrompt() : buildTranslateSystemPrompt($('tailor-to-recipient-toggle').checked);
       const { text: raw, stopReason } = await callClaude({ system, userContent: input, maxTokens: 4096 });
       if (!raw.trim()) throw new Error(emptyResponseMessage(stopReason));
       if (mode === 'incoming') {
