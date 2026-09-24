@@ -57,131 +57,166 @@ const MAX_OUTPUT_TOKENS_CEILING = 4096;
 // how many requests per passcode can even be attempted per minute.
 const RATE_LIMIT_PER_MINUTE = 10;
 
-// Pre-auth throttle, checked before the passcode is even looked up. Without
-// this, a request with no passcode or a wrong one skips RATE_LIMIT_PER_MINUTE
-// entirely — that one only ever runs after a passcode has already been
-// validated — so junk/missing passcodes previously faced no rate limiting at
-// all. CF-Connecting-IP is set by Cloudflare at the edge, so a client can't
-// spoof it to dodge this.
+// Pre-auth throttle, checked before the passcode is even looked up, so
+// junk/missing passcodes are rate limited too. CF-Connecting-IP is set by
+// Cloudflare at the edge, so a client can't spoof it to dodge this.
 const IP_RATE_LIMIT_PER_MINUTE = 20;
+
+// Both throttles above are counted in this Worker instance's memory, not
+// in KV. KV's free tier allows only 1,000 writes/day (and 1 write/second
+// per key), so writing a counter on every request — including junk
+// requests from anyone on the internet — let a single IP exhaust the
+// day's write quota and take the Worker down for everyone. In-memory
+// counts are per-instance and best-effort (Cloudflare may run several
+// instances), which is fine: the real guard is the spending cap below,
+// and the only KV writes left happen after a passcode has been validated.
+const minuteCounters = { minute: -1, counts: new Map() };
+function bumpMinuteCounter(key) {
+  const minute = Math.floor(Date.now() / 60000);
+  if (minuteCounters.minute !== minute) {
+    minuteCounters.minute = minute;
+    minuteCounters.counts.clear();
+  }
+  const n = (minuteCounters.counts.get(key) || 0) + 1;
+  minuteCounters.counts.set(key, n);
+  return n;
+}
+
+// The hosted app only ever sends plain text, so that's all this proxy
+// forwards. Anything else (images, PDFs, URL-sourced documents, tools) is
+// rejected: those are billed for far more tokens than the request body's
+// size suggests, which let a request slip past the pre-call cost estimate,
+// and they'd turn the shared key into a general-purpose Claude proxy.
+// MAX_INPUT_CHARS sits well above U/I's largest real request (the archive
+// draft sample is ~12k chars plus its prompt).
+const MAX_INPUT_CHARS = 60000;
+const MAX_MESSAGES = 100;
 
 const TTL_DAY = 60 * 60 * 24 * 2; // usage keys outlive a day so late writes still land
 const TTL_MONTH = 60 * 60 * 24 * 40;
-const TTL_MINUTE = 120;
 
 export default {
   async fetch(request, env) {
-    const origin = request.headers.get('Origin') || '';
     const cors = corsHeaders(env);
-
-    // Pre-auth throttle, checked before anything else — including OPTIONS,
-    // which otherwise costs a Worker invocation with no rate limit at all.
-    // CF-Connecting-IP is set by Cloudflare at the edge, so a client can't
-    // spoof it to dodge this.
-    const clientIp = request.headers.get('CF-Connecting-IP') || 'unknown';
-    const ipRateKey = `iprate:${clientIp}:${Math.floor(Date.now() / 60000)}`;
-    const ipRateCount = (await readInt(env.USAGE, ipRateKey)) + 1;
-    if (ipRateCount > IP_RATE_LIMIT_PER_MINUTE) {
-      return jsonError(429, 'Too many requests from this address. Try again shortly.', cors);
-    }
-    await env.USAGE.put(ipRateKey, String(ipRateCount), { expirationTtl: TTL_MINUTE });
-
-    if (request.method === 'OPTIONS') {
-      return new Response(null, { status: 204, headers: cors });
-    }
-
-    const url = new URL(request.url);
-    if (url.pathname !== '/v1/messages') {
-      return jsonError(404, 'Not found', cors);
-    }
-    if (request.method !== 'POST') {
-      return jsonError(405, 'Method not allowed', cors);
-    }
-
-    // Origin header can be forged by a non-browser client (curl, etc.), so
-    // this is not the real access control — the passcode below is. This
-    // just stops other websites from using a visitor's browser to spend
-    // your budget without them noticing.
-    if (!env.ALLOWED_ORIGIN || origin !== env.ALLOWED_ORIGIN) {
-      return jsonError(403, 'Origin not allowed', cors);
-    }
-
-    const passcode = request.headers.get('x-passcode') || '';
-    if (!passcode) return jsonError(401, 'Missing passcode', cors);
-
-    const passHash = await sha256Hex(passcode);
-    const record = await env.PASSCODES.get(`passcode:${passHash}`, 'json');
-    if (!record || record.active === false) {
-      return jsonError(401, 'Invalid or revoked passcode', cors);
-    }
-    const userId = record.name || passHash;
-
-    const rateKey = `rate:${userId}:${Math.floor(Date.now() / 60000)}`;
-    const rateCount = (await readInt(env.USAGE, rateKey)) + 1;
-    if (rateCount > RATE_LIMIT_PER_MINUTE) {
-      return jsonError(
-        429,
-        `Too many requests — limit is ${RATE_LIMIT_PER_MINUTE}/minute per passcode. Try again shortly.`,
-        cors
-      );
-    }
-    await env.USAGE.put(rateKey, String(rateCount), { expirationTtl: TTL_MINUTE });
-
-    let body;
     try {
-      body = await request.json();
-    } catch {
-      return jsonError(400, 'Invalid JSON body', cors);
+      return await handle(request, env, cors);
+    } catch (e) {
+      // Always answer with CORS headers, so the browser shows this message
+      // instead of a generic network error.
+      return jsonError(500, 'Proxy error: ' + (e && e.message ? e.message : 'unknown'), cors);
     }
+  },
+};
 
-    if (!ALLOWED_MODELS.includes(body.model)) {
-      return jsonError(400, `Model not allowed: ${body.model}`, cors);
-    }
-    const model = body.model;
-    const maxTokens = clamp(parseInt(body.max_tokens, 10) || 1024, 1, MAX_OUTPUT_TOKENS_CEILING);
+async function handle(request, env, cors) {
+  const origin = request.headers.get('Origin') || '';
 
-    const outgoing = {
-      model,
-      max_tokens: maxTokens,
-      system: body.system,
-      messages: body.messages,
-    };
+  const clientIp = request.headers.get('CF-Connecting-IP') || 'unknown';
+  if (bumpMinuteCounter(`ip:${clientIp}`) > IP_RATE_LIMIT_PER_MINUTE) {
+    return jsonError(429, 'Too many requests from this address. Try again shortly.', cors);
+  }
 
-    const now = new Date();
-    const day = now.toISOString().slice(0, 10); // YYYY-MM-DD (UTC)
-    const month = day.slice(0, 7); // YYYY-MM
-    const userDayKey = `user:${userId}:${day}`;
-    const globalMonthKey = `global:${month}`;
-    const perUserCapCents = parseInt(env.PER_USER_DAILY_CAP_CENTS, 10);
-    const globalCapCents = parseInt(env.GLOBAL_MONTHLY_CAP_CENTS, 10);
+  if (request.method === 'OPTIONS') {
+    return new Response(null, { status: 204, headers: cors });
+  }
 
-    const [userSpent, globalSpent] = await Promise.all([
-      readInt(env.USAGE, userDayKey),
-      readInt(env.USAGE, globalMonthKey),
-    ]);
+  const url = new URL(request.url);
+  if (url.pathname !== '/v1/messages') {
+    return jsonError(404, 'Not found', cors);
+  }
+  if (request.method !== 'POST') {
+    return jsonError(405, 'Method not allowed', cors);
+  }
 
-    const estimateCents = estimateCostCents(model, outgoing, maxTokens);
+  // Origin header can be forged by a non-browser client (curl, etc.), so
+  // this is not the real access control — the passcode below is. This
+  // just stops other websites from using a visitor's browser to spend
+  // your budget without them noticing.
+  if (!env.ALLOWED_ORIGIN || origin !== env.ALLOWED_ORIGIN) {
+    return jsonError(403, 'Origin not allowed', cors);
+  }
 
-    if (userSpent + estimateCents > perUserCapCents) {
-      return jsonError(
-        429,
-        `Daily cap reached for this passcode ($${(perUserCapCents / 100).toFixed(
-          2
-        )}/day). Resets at midnight UTC.`,
-        cors
-      );
-    }
-    if (globalSpent + estimateCents > globalCapCents) {
-      return jsonError(
-        429,
-        `This instance's monthly budget cap has been reached. Resets next month.`,
-        cors
-      );
-    }
+  const passcode = request.headers.get('x-passcode') || '';
+  if (!passcode) return jsonError(401, 'Missing passcode', cors);
 
-    // Reserve the worst-case cost BEFORE the slow upstream call. This is
-    // what closes the race where several requests could otherwise all pass
-    // the checks above while none of them has been recorded yet.
+  const passHash = await sha256Hex(passcode);
+  const record = await env.PASSCODES.get(`passcode:${passHash}`, 'json');
+  if (!record || record.active === false) {
+    return jsonError(401, 'Invalid or revoked passcode', cors);
+  }
+  const userId = record.name || passHash;
+
+  if (bumpMinuteCounter(`user:${userId}`) > RATE_LIMIT_PER_MINUTE) {
+    return jsonError(
+      429,
+      `Too many requests — limit is ${RATE_LIMIT_PER_MINUTE}/minute per passcode. Try again shortly.`,
+      cors
+    );
+  }
+
+  let body;
+  try {
+    body = await request.json();
+  } catch {
+    return jsonError(400, 'Invalid JSON body', cors);
+  }
+
+  if (!ALLOWED_MODELS.includes(body.model)) {
+    return jsonError(400, `Model not allowed: ${body.model}`, cors);
+  }
+  const model = body.model;
+  const maxTokens = clamp(parseInt(body.max_tokens, 10) || 1024, 1, MAX_OUTPUT_TOKENS_CEILING);
+
+  const system = sanitizeSystem(body.system);
+  const messages = sanitizeMessages(body.messages);
+  if (system === null || messages === null) {
+    return jsonError(400, 'Only plain-text system and message content is accepted.', cors);
+  }
+  if (countChars(system, messages) > MAX_INPUT_CHARS) {
+    return jsonError(400, `Request too long (limit ${MAX_INPUT_CHARS} characters).`, cors);
+  }
+
+  const outgoing = { model, max_tokens: maxTokens, messages };
+  if (system !== undefined) outgoing.system = system;
+
+  const now = new Date();
+  const day = now.toISOString().slice(0, 10); // YYYY-MM-DD (UTC)
+  const month = day.slice(0, 7); // YYYY-MM
+  const userDayKey = `user:${userId}:${day}`;
+  const globalMonthKey = `global:${month}`;
+  const perUserCapCents = parseInt(env.PER_USER_DAILY_CAP_CENTS, 10);
+  const globalCapCents = parseInt(env.GLOBAL_MONTHLY_CAP_CENTS, 10);
+
+  const [userSpent, globalSpent] = await Promise.all([
+    readInt(env.USAGE, userDayKey),
+    readInt(env.USAGE, globalMonthKey),
+  ]);
+
+  const estimateCents = estimateCostCents(model, outgoing, maxTokens);
+
+  if (userSpent + estimateCents > perUserCapCents) {
+    return jsonError(
+      429,
+      `Daily cap reached for this passcode ($${(perUserCapCents / 100).toFixed(
+        2
+      )}/day). Resets at midnight UTC.`,
+      cors
+    );
+  }
+  if (globalSpent + estimateCents > globalCapCents) {
+    return jsonError(
+      429,
+      `This instance's monthly budget cap has been reached. Resets next month.`,
+      cors
+    );
+  }
+
+  // Reserve the worst-case cost BEFORE the slow upstream call. This is
+  // what closes the race where several requests could otherwise all pass
+  // the checks above while none of them has been recorded yet.
+  // If the reservation can't be recorded (e.g. KV's daily write quota is
+  // used up), fail closed: no upstream call without a recorded hold.
+  try {
     await Promise.all([
       env.USAGE.put(userDayKey, String(userSpent + estimateCents), {
         expirationTtl: TTL_DAY,
@@ -190,31 +225,38 @@ export default {
         expirationTtl: TTL_MONTH,
       }),
     ]);
+  } catch (e) {
+    return jsonError(503, 'Usage tracking is unavailable right now, so this request was not sent. Try again later.', cors);
+  }
 
-    let upstream;
-    try {
-      upstream = await fetch('https://api.anthropic.com/v1/messages', {
-        method: 'POST',
-        headers: {
-          'content-type': 'application/json',
-          'x-api-key': env.ANTHROPIC_API_KEY,
-          'anthropic-version': '2023-06-01',
-        },
-        body: JSON.stringify(outgoing),
-      });
-    } catch (e) {
-      await releaseReservation(env, userDayKey, globalMonthKey, estimateCents);
-      return jsonError(502, 'Could not reach Anthropic: ' + e.message, cors);
-    }
+  let upstream;
+  try {
+    upstream = await fetch('https://api.anthropic.com/v1/messages', {
+      method: 'POST',
+      headers: {
+        'content-type': 'application/json',
+        'x-api-key': env.ANTHROPIC_API_KEY,
+        'anthropic-version': '2023-06-01',
+      },
+      body: JSON.stringify(outgoing),
+    });
+  } catch (e) {
+    await releaseReservation(env, userDayKey, globalMonthKey, estimateCents);
+    return jsonError(502, 'Could not reach Anthropic: ' + e.message, cors);
+  }
 
-    const text = await upstream.text();
-    let parsed = null;
-    try {
-      parsed = JSON.parse(text);
-    } catch {
-      // leave parsed null
-    }
+  const text = await upstream.text();
+  let parsed = null;
+  try {
+    parsed = JSON.parse(text);
+  } catch {
+    // leave parsed null
+  }
 
+  // The call has already happened (and been billed) by now, so a failed
+  // KV write here must not throw away the response. The reservation was
+  // already recorded as the worst case, so the cap stays conservative.
+  try {
     if (upstream.ok && parsed && parsed.usage) {
       const actualCents = actualCostCents(model, parsed.usage);
       await reconcileReservation(env, userDayKey, globalMonthKey, estimateCents, actualCents);
@@ -222,13 +264,60 @@ export default {
       // Upstream call failed outright — nothing was billed, release the hold.
       await releaseReservation(env, userDayKey, globalMonthKey, estimateCents);
     }
+  } catch {
+    // leave the worst-case reservation in place
+  }
 
-    return new Response(text, {
-      status: upstream.status,
-      headers: { ...cors, 'content-type': 'application/json' },
-    });
-  },
-};
+  return new Response(text, {
+    status: upstream.status,
+    headers: { ...cors, 'content-type': 'application/json' },
+  });
+}
+
+// Returns a text-only copy of `system` (string or array of text blocks),
+// undefined if absent, or null if it contains anything else.
+function sanitizeSystem(system) {
+  if (system === undefined || system === null) return undefined;
+  if (typeof system === 'string') return system;
+  return sanitizeTextBlocks(system);
+}
+
+// Returns a text-only copy of `messages`, or null if any message has a
+// role other than user/assistant or any non-text content.
+function sanitizeMessages(messages) {
+  if (!Array.isArray(messages) || messages.length === 0 || messages.length > MAX_MESSAGES) return null;
+  const out = [];
+  for (const m of messages) {
+    if (!m || (m.role !== 'user' && m.role !== 'assistant')) return null;
+    let content;
+    if (typeof m.content === 'string') content = m.content;
+    else content = sanitizeTextBlocks(m.content);
+    if (content === null) return null;
+    out.push({ role: m.role, content });
+  }
+  return out;
+}
+
+function sanitizeTextBlocks(blocks) {
+  if (!Array.isArray(blocks) || blocks.length === 0) return null;
+  const out = [];
+  for (const b of blocks) {
+    if (!b || b.type !== 'text' || typeof b.text !== 'string') return null;
+    const block = { type: 'text', text: b.text };
+    if (b.cache_control !== undefined) {
+      if (!b.cache_control || b.cache_control.type !== 'ephemeral') return null;
+      block.cache_control = { type: 'ephemeral' };
+    }
+    out.push(block);
+  }
+  return out;
+}
+
+function countChars(system, messages) {
+  const len = (c) =>
+    c === undefined ? 0 : typeof c === 'string' ? c.length : c.reduce((n, b) => n + b.text.length, 0);
+  return len(system) + messages.reduce((n, m) => n + len(m.content), 0);
+}
 
 function clamp(n, lo, hi) {
   return Math.max(lo, Math.min(hi, n));

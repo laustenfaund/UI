@@ -148,6 +148,11 @@ whichever path you have the tools for — they produce the same result.
 ## Cost note
 
 The Worker's own Cloudflare usage (requests, KV reads/writes) stays
-comfortably inside Cloudflare's free tier for a small invite-only group.
+inside Cloudflare's free tier for a small invite-only group. The free tier
+allows 1,000 KV writes a day, so the Worker only writes to KV for requests
+with a valid passcode (about 2–4 writes per translation); rate limiting
+is counted in memory instead. If KV writes do run out, requests fail with
+a clear "usage tracking is unavailable" error rather than going through
+uncapped.
 The only real cost is what you already expect: Anthropic API usage, now
 bounded by the caps above instead of open-ended.
